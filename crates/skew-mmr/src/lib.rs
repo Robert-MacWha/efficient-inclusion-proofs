@@ -57,13 +57,12 @@ impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> 
 
         let (tree, offset) = self.locate(self.len - 1 - index);
         let mut path = Vec::new();
-        self.node(tree).walk(offset, &mut path);
+        let children = self.node(tree).walk(offset, &mut path);
         path.reverse();
 
         Proof {
-            roots: self.roots(),
-            ranks: self.ranks(),
             tree,
+            children,
             path,
             hasher: PhantomData,
         }
@@ -148,30 +147,33 @@ impl<E: Element> Node<E> {
         }
     }
 
-    /// Push the steps from this node down to `offset`, root first. Offset 0 is
-    /// this node, then the left subtree, then the right.
-    fn walk(&self, offset: usize, path: &mut Vec<Step<E>>) {
-        path.push(self.step());
+    /// Push the ancestors of the node at `offset`, root first, and return that node's
+    /// children. Offset 0 is this node, then the left subtree, then the right.
+    fn walk(&self, offset: usize, path: &mut Vec<Step<E>>) -> Option<(E, E)> {
         if offset == 0 {
-            return;
+            return self
+                .children
+                .as_ref()
+                .map(|children| (children.0.root.clone(), children.1.root.clone()));
         }
 
         let children = self.children.as_ref().expect("a leaf holds only offset 0");
         let left_size = children.0.size();
-        match offset <= left_size {
-            true => children.0.walk(offset - 1, path),
-            false => children.1.walk(offset - 1 - left_size, path),
-        }
-    }
+        let right = offset > left_size;
+        let (next, offset) = match right {
+            true => (&children.1, offset - 1 - left_size),
+            false => (&children.0, offset - 1),
+        };
 
-    fn step(&self) -> Step<E> {
-        Step {
+        path.push(Step {
             element: self.element.clone(),
-            children: self
-                .children
-                .as_ref()
-                .map(|children| (children.0.root.clone(), children.1.root.clone())),
-        }
+            sibling: match right {
+                true => children.0.root.clone(),
+                false => children.1.root.clone(),
+            },
+            right,
+        });
+        next.walk(offset, path)
     }
 
     fn size(&self) -> usize {

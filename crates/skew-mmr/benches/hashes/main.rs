@@ -31,9 +31,11 @@ fn verify(c: &mut Criterion<HashCount>) {
     group.sample_size(10);
 
     for n in SIZES {
-        let proof = filled(n).prove(0);
+        let mmr = filled(n);
+        let (roots, ranks) = (mmr.roots(), mmr.ranks());
+        let proof = mmr.prove(0);
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
-            b.iter(|| proof.verify(black_box(&0)));
+            b.iter(|| proof.verify(&roots, &ranks, black_box(&0)));
         });
     }
 }

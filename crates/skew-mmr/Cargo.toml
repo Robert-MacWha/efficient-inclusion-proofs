@@ -3,10 +3,17 @@ name = "skew-mmr"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-
 [dev-dependencies]
-criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+alloy = { version = "2.5.0", features = [
+    "node-bindings",
+    "provider-http",
+    "contract",
+    "sol-types",
+] }
+criterion = { version = "0.8.2", default-features = false, features = [
+    "cargo_bench_support",
+] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
 
 [[bench]]
 name = "hashes"
