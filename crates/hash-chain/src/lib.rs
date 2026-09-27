@@ -1,22 +1,22 @@
 //! Recursive hash-chain accumulator.
 //!
-//! An append-only set commitment. Each of `DEPTH` levels keeps a running hash chain; every
-//! `BATCH` elements a level's chain is *closed* and its value is appended as a single element
-//! to the level above, and the level restarts. Capacity is `BATCH^DEPTH`.
-//!
-//! Appending costs one hash and one accumulator write per level touched, which is
-//! `1 + 1/BATCH + 1/BATCH^2 + ...` ~= 1.03 amortized for `BATCH = 32`. The price is paid at
-//! proving time: an inclusion proof re-hashes a whole `BATCH`-length segment per level, so at
-//! most `BATCH * DEPTH` hashes.
-//!
-//! Structurally this is a `BATCH`-ary Merkle tree whose node value is a sequential hash chain
-//! over its children rather than one wide multi-input hash. The difference that matters is that
-//! a chain node is incrementally extensible: a new child costs one hash, and the pending
-//! children never have to be stored.
+//! An append-only set of commitments that can produce inclusion proofs. Each of
+//! `DEPTH` levels keeps a running hash chain over its children updated every
+//! `BATCH` elements.
 
 pub mod hash;
 
 use hash::{Hash, IV, hash};
+
+/// A recursive hash-chain accumulator.
+pub struct HashChainAccumulator<const BATCH: usize, const DEPTH: usize> {
+    /// `accs[l]` is the open (not yet closed) chain at level `l`. This, plus a leaf counter, is
+    /// the whole on-chain state.
+    accs: [Hash; DEPTH],
+    /// Every element ever pushed into each level: leaves at level 0, closed accumulators above.
+    /// Prover-side history only; a contract does not keep this.
+    levels: [Vec<Hash>; DEPTH],
+}
 
 /// One level's contribution to a proof: the full batch containing the value being proven.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,15 +31,6 @@ pub struct Segment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proof {
     pub segments: Vec<Segment>,
-}
-
-pub struct HashChainAccumulator<const BATCH: usize, const DEPTH: usize> {
-    /// `accs[l]` is the open (not yet closed) chain at level `l`. This, plus a leaf counter, is
-    /// the whole on-chain state.
-    accs: [Hash; DEPTH],
-    /// Every element ever pushed into each level: leaves at level 0, closed accumulators above.
-    /// Prover-side history only; a contract does not keep this.
-    levels: [Vec<Hash>; DEPTH],
 }
 
 impl<const BATCH: usize, const DEPTH: usize> HashChainAccumulator<BATCH, DEPTH> {
