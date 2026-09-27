@@ -1,96 +1,80 @@
-//! Skew-binary MMR.
-//!
-//! An append-only set commitment holding a stack of complete binary trees, where a rank-`k`
-//! tree holds `2^(k+1) - 1` elements. The carry rule is skew binary addition: if the two
-//! smallest trees have equal rank, the new element becomes the root of their combination;
-//! otherwise it becomes a singleton.
-//!
-//! A singleton's root is the element itself, so **a push costs no hash and a combine costs
-//! one**. Pushes are about half of all appends, so that is ~0.5 hashes amortized with a worst
-//! case of 1. A standard MMR does `1 + trailing_ones(n)` -- amortized ~2, but worst case
-//! `O(log n)`, which one unlucky caller pays in full. The stack is touched either once (a push)
-//! or three times (two pops and a push), never `O(log n)`.
-//!
-//! The element appended becomes the root of the new tree, so elements sit at every node rather
-//! than only at leaves. Stack depth is `O(log n)` and an inclusion proof is one step per level
-//! of the containing tree, so `O(log n)` hashes.
+pub mod element;
+pub mod hasher;
+pub mod proof;
 
-pub mod hash;
+use std::marker::PhantomData;
 
-use hash::{EMPTY, Hash, node};
+use element::Element;
+use hasher::Hasher;
+use proof::{Proof, Step};
 
-/// One node on the path: the element it holds and the roots of its two subtrees. For a leaf
-/// the subtree roots are unused, since a leaf's root is its element.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Step {
-    pub element: Hash,
-    pub left: Hash,
-    pub right: Hash,
-}
-
-/// The proven node first, the containing tree's root last.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Proof {
-    /// Index into the stack of roots.
-    pub tree: usize,
-    pub path: Vec<Step>,
-}
-
-pub struct SkewMmr {
-    /// Trees of decreasing rank, except that the last two may be equal. The last entry is the
-    /// smallest and newest, so appends push and pop at the end.
-    stack: Vec<Node>,
+/// An append-only set commitment structure.
+///
+/// SkewMmr is a modified MMR (Merkle Mountain Range) that uses skew-binary-style
+/// carrying to append new elements in a maximum of O(1) hashes.
+pub struct SkewMmr<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> {
+    /// Perfect binary trees of decreasing ranks. Entires above `depth` are `None`.
+    stack: [Option<Node<E>>; MAX_DEPTH],
+    depth: usize,
     len: usize,
-    hashes: usize,
+    hasher: PhantomData<H>,
 }
 
-impl SkewMmr {
+struct Node<E: Element> {
+    root: E,
+    rank: u32,
+    element: E,
+    children: Option<Box<(Node<E>, Node<E>)>>,
+}
+
+impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     pub fn new() -> Self {
         Self {
-            stack: Vec::new(),
+            stack: std::array::from_fn(|_| None),
+            depth: 0,
             len: 0,
-            hashes: 0,
+            hasher: PhantomData,
         }
     }
 
-    /// Append an element. Performs one hash when it combines, none when it pushes.
-    pub fn append(&mut self, element: Hash) {
+    /// Appends an element to the MMR in O(1) hashes.
+    pub fn append(&mut self, element: E) {
         self.len += 1;
 
-        let top = self.stack.len();
-        if top < 2 || self.stack[top - 1].rank != self.stack[top - 2].rank {
-            self.stack.push(Node::leaf(element));
+        if self.depth < 2 || self.rank(self.depth - 1) != self.rank(self.depth - 2) {
+            self.push(Node::leaf(element));
             return;
         }
 
-        // The newer of the two goes left, which keeps preorder walking backwards through
-        // append order.
-        let left = self.stack.pop().expect("checked above");
-        let right = self.stack.pop().expect("checked above");
-        self.stack.push(Node::internal(element, left, right));
-        self.hashes += 1;
+        let left = self.pop();
+        let right = self.pop();
+        self.push(Node::internal::<H>(element, left, right));
     }
 
-    /// Build an inclusion proof for the element at `index`, in append order.
-    pub fn prove(&self, index: usize) -> Proof {
+    /// Prove the element at `index`.
+    pub fn prove(&self, index: usize) -> Proof<E, H> {
         assert!(index < self.len, "index out of range");
 
         let (tree, offset) = self.locate(self.len - 1 - index);
         let mut path = Vec::new();
-        self.stack[tree].walk(offset, &mut path);
+        self.node(tree).walk(offset, &mut path);
         path.reverse();
-        Proof { tree, path }
+
+        Proof {
+            roots: self.roots(),
+            ranks: self.ranks(),
+            tree,
+            path,
+            hasher: PhantomData,
+        }
     }
 
-    /// The commitment: one root per tree, which is the whole on-chain state alongside `len`.
-    pub fn roots(&self) -> Vec<Hash> {
-        self.stack.iter().map(|node| node.root).collect()
+    pub fn roots(&self) -> Vec<E> {
+        (0..self.depth).map(|i| self.node(i).root.clone()).collect()
     }
 
-    /// Rank of each tree. Public data -- it is determined by `len` -- and the verifier needs it
-    /// to tell how deep a proof into a given tree has to be.
     pub fn ranks(&self) -> Vec<u32> {
-        self.stack.iter().map(|node| node.rank).collect()
+        (0..self.depth).map(|i| self.node(i).rank).collect()
     }
 
     pub fn len(&self) -> usize {
@@ -101,117 +85,72 @@ impl SkewMmr {
         self.len == 0
     }
 
-    /// Number of trees on the stack.
     pub fn depth(&self) -> usize {
-        self.stack.len()
+        self.depth
     }
 
-    pub fn total_hashes(&self) -> usize {
-        self.hashes
-    }
-
-    /// Map a newest-first position to the tree holding it and the offset within that tree.
+    /// Locates the tree and offset of the element at `position` in the MMR.
     fn locate(&self, mut position: usize) -> (usize, usize) {
-        for (tree, node) in self.stack.iter().enumerate().rev() {
-            if position < node.size() {
+        for tree in (0..self.depth).rev() {
+            let size = self.node(tree).size();
+            if position < size {
                 return (tree, position);
             }
-            position -= node.size();
+            position -= size;
         }
         unreachable!("position is below len, so some tree holds it")
     }
+
+    fn node(&self, tree: usize) -> &Node<E> {
+        self.stack[tree].as_ref().expect("populated below depth")
+    }
+
+    fn rank(&self, tree: usize) -> u32 {
+        self.node(tree).rank
+    }
+
+    fn push(&mut self, node: Node<E>) {
+        assert!(self.depth < MAX_DEPTH, "stack is full");
+        self.stack[self.depth] = Some(node);
+        self.depth += 1;
+    }
+
+    fn pop(&mut self) -> Node<E> {
+        self.depth -= 1;
+        self.stack[self.depth]
+            .take()
+            .expect("populated below depth")
+    }
 }
 
-impl Default for SkewMmr {
+impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> Default for SkewMmr<MAX_DEPTH, E, H> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Check that `element` is in the set committed to by `roots`.
-///
-/// Whether the proven node is a leaf is *derived*, never asserted by the prover: a path of `L`
-/// steps into a rank-`r` tree reaches a node whose own subtree has rank `r - L + 1`, so the
-/// proven node is a leaf exactly when `L == r + 1`. Without that, a prover could take any
-/// internal node's root -- which is a hash, not an element -- submit a one-step proof calling
-/// it a leaf, and prove membership of something never appended.
-///
-/// Above the proven node every step recomputes its node from the element it holds and both
-/// child roots, so the path is pinned end to end by collision resistance.
-pub fn verify(proof: &Proof, element: Hash, roots: &[Hash], ranks: &[u32]) -> bool {
-    let (Some(&root), Some(&rank), Some(first)) = (
-        roots.get(proof.tree),
-        ranks.get(proof.tree),
-        proof.path.first(),
-    ) else {
-        return false;
-    };
-    if first.element != element || proof.path.len() > rank as usize + 1 {
-        return false;
-    }
-
-    let proven_is_leaf = proof.path.len() == rank as usize + 1;
-    let mut current = match proven_is_leaf {
-        true => first.element,
-        false => node(first.element, first.left, first.right),
-    };
-
-    for step in &proof.path[1..] {
-        // No direction bit: it is enough that the node below is one of this node's children.
-        if current != step.left && current != step.right {
-            return false;
-        }
-        current = node(step.element, step.left, step.right);
-    }
-    current == root
-}
-
-struct Node {
-    root: Hash,
-    rank: u32,
-    element: Hash,
-    children: Option<Box<(Node, Node)>>,
-}
-
-impl Node {
-    /// A singleton's root is the element itself, so appending one costs no hash.
-    fn leaf(element: Hash) -> Self {
+impl<E: Element> Node<E> {
+    fn leaf(element: E) -> Self {
         Self {
-            root: element,
+            root: element.clone(),
             rank: 0,
             element,
             children: None,
         }
     }
 
-    fn internal(element: Hash, left: Node, right: Node) -> Self {
+    fn internal<H: Hasher<E>>(element: E, left: Node<E>, right: Node<E>) -> Self {
         Self {
-            root: node(element, left.root, right.root),
+            root: H::hash(&element, &left.root, &right.root),
             rank: left.rank + 1,
             element,
             children: Some(Box::new((left, right))),
         }
     }
 
-    fn size(&self) -> usize {
-        (1 << (self.rank + 1)) - 1
-    }
-
-    fn step(&self) -> Step {
-        let (left, right) = match &self.children {
-            Some(children) => (children.0.root, children.1.root),
-            None => (EMPTY, EMPTY),
-        };
-        Step {
-            element: self.element,
-            left,
-            right,
-        }
-    }
-
-    /// Push the steps from this node down to `offset`, root first. Preorder: offset 0 is this
-    /// node, then the left subtree, then the right.
-    fn walk(&self, offset: usize, path: &mut Vec<Step>) {
+    /// Push the steps from this node down to `offset`, root first. Offset 0 is
+    /// this node, then the left subtree, then the right.
+    fn walk(&self, offset: usize, path: &mut Vec<Step<E>>) {
         path.push(self.step());
         if offset == 0 {
             return;
@@ -224,174 +163,76 @@ impl Node {
             false => children.1.walk(offset - 1 - left_size, path),
         }
     }
+
+    fn step(&self) -> Step<E> {
+        Step {
+            element: self.element.clone(),
+            children: self
+                .children
+                .as_ref()
+                .map(|children| (children.0.root.clone(), children.1.root.clone())),
+        }
+    }
+
+    fn size(&self) -> usize {
+        (1 << (self.rank + 1)) - 1
+    }
+}
+
+#[cfg(test)]
+pub mod testing {
+    use super::SkewMmr;
+    use crate::hasher::StdHasher;
+
+    pub type Mmr = SkewMmr<32, u64, StdHasher>;
+
+    pub fn filled(n: u64) -> Mmr {
+        let mut mmr = Mmr::new();
+        for i in 0..n {
+            mmr.append(i);
+        }
+        mmr
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn element(i: usize) -> Hash {
-        1_000_000 + i as Hash
-    }
-
-    fn filled(n: usize) -> SkewMmr {
-        let mut mmr = SkewMmr::new();
-        for i in 0..n {
-            mmr.append(element(i));
-        }
-        mmr
-    }
-
-    /// Every element proves at every intermediate size, which covers every stack shape.
-    #[test]
-    fn round_trip() {
-        let mut mmr = SkewMmr::new();
-        for i in 0..200 {
-            mmr.append(element(i));
-            let roots = mmr.roots();
-            let ranks = mmr.ranks();
-            for j in 0..=i {
-                let proof = mmr.prove(j);
-                assert!(
-                    verify(&proof, element(j), &roots, &ranks),
-                    "element {j} failed at len {}",
-                    i + 1
-                );
-            }
-        }
-    }
-
-    /// A push hashes nothing and a combine hashes once, so the worst case is flat at 1 and the
-    /// average is about a half.
-    #[test]
-    fn hashes_only_on_combine() {
-        let mut mmr = SkewMmr::new();
-        let mut combines = 0;
-        for i in 0..100_000 {
-            let before = mmr.depth();
-            mmr.append(element(i));
-            if mmr.depth() < before {
-                combines += 1;
-            }
-            assert_eq!(mmr.total_hashes(), combines);
-        }
-        assert!(mmr.total_hashes() < mmr.len() / 2 + 32);
-    }
+    use testing::Mmr;
 
     #[test]
-    fn stack_shape() {
-        let mut mmr = SkewMmr::new();
-        for _ in 0..1000 {
-            mmr.append(element(mmr.len()));
+    fn ranks_decrease_except_the_top_pair() {
+        let mut mmr = Mmr::new();
+        for i in 0..1000 {
+            mmr.append(i);
 
             let ranks = mmr.ranks();
-            let sizes: usize = mmr.stack.iter().map(|node| node.size()).sum();
-            assert_eq!(sizes, mmr.len());
-
-            // Strictly decreasing, except the last two may tie.
-            for window in ranks.windows(2).take(ranks.len().saturating_sub(2)) {
-                assert!(window[0] > window[1], "bad rank order {ranks:?}");
+            for pair in ranks.windows(2).take(ranks.len().saturating_sub(2)) {
+                assert!(pair[0] > pair[1], "{ranks:?}");
             }
             if let [.., a, b] = ranks[..] {
-                assert!(a >= b, "bad rank order {ranks:?}");
+                assert!(a >= b, "{ranks:?}");
             }
         }
     }
 
     #[test]
-    fn rejects_bad_proofs() {
-        let mmr = filled(100);
-        let roots = mmr.roots();
-        let ranks = mmr.ranks();
-        let proof = mmr.prove(40);
-        assert!(verify(&proof, element(40), &roots, &ranks));
+    fn tree_sizes_cover_every_element() {
+        let mut mmr = Mmr::new();
+        for i in 0..1000 {
+            mmr.append(i);
 
-        assert!(!verify(&proof, element(41), &roots, &ranks));
-        assert!(!verify(&proof, 0, &roots, &ranks));
-
-        let elsewhere = Proof {
-            tree: (proof.tree + 1) % roots.len(),
-            ..proof.clone()
-        };
-        assert!(!verify(&elsewhere, element(40), &roots, &ranks));
-
-        let out_of_range = Proof {
-            tree: roots.len(),
-            ..proof.clone()
-        };
-        assert!(!verify(&out_of_range, element(40), &roots, &ranks));
-
-        let mut tampered = proof.clone();
-        tampered.path.last_mut().unwrap().element ^= 1;
-        assert!(!verify(&tampered, element(40), &roots, &ranks));
-
-        let mut truncated = proof.clone();
-        truncated.path.pop();
-        assert!(!verify(&truncated, element(40), &roots, &ranks));
-
-        let stale: Vec<Hash> = roots.iter().map(|r| r.wrapping_add(1)).collect();
-        assert!(!verify(&proof, element(40), &stale, &ranks));
-    }
-
-    /// A leaf's root is a bare element, so an internal node's root must not be passable off as
-    /// one. The path length required by the tree's rank is what prevents it.
-    #[test]
-    fn rejects_internal_root_claimed_as_leaf() {
-        let mmr = filled(100);
-        let roots = mmr.roots();
-        let ranks = mmr.ranks();
-
-        // Pick a tree whose root is a hash rather than a bare element.
-        let tree = ranks
-            .iter()
-            .position(|&rank| rank > 0)
-            .expect("a tall tree");
-        let forged = Proof {
-            tree,
-            path: vec![Step {
-                element: roots[tree],
-                left: EMPTY,
-                right: EMPTY,
-            }],
-        };
-        assert!(!verify(&forged, roots[tree], &roots, &ranks));
+            let covered: usize = mmr.ranks().iter().map(|&rank| (1 << (rank + 1)) - 1).sum();
+            assert_eq!(covered, mmr.len());
+        }
     }
 
     #[test]
-    fn scale() {
-        const N: usize = 1 << 20;
-
-        let mut mmr = SkewMmr::new();
-        let mut combines = 0;
-        let mut max_depth = 0;
-        for i in 0..N {
-            let before = mmr.depth();
-            mmr.append(element(i));
-            if mmr.depth() < before {
-                combines += 1;
-            }
-            max_depth = max_depth.max(mmr.depth());
+    #[should_panic(expected = "stack is full")]
+    fn rejects_overflowing_max_depth() {
+        let mut mmr: SkewMmr<3, u64, hasher::StdHasher> = SkewMmr::new();
+        for i in 0..1000 {
+            mmr.append(i);
         }
-        assert_eq!(mmr.total_hashes(), combines);
-
-        let roots = mmr.roots();
-        let ranks = mmr.ranks();
-        let mut max_path = 0;
-        for i in (0..N).step_by(997) {
-            let proof = mmr.prove(i);
-            assert!(verify(&proof, element(i), &roots, &ranks));
-            max_path = max_path.max(proof.path.len());
-        }
-
-        assert!(max_depth <= 32, "stack depth {max_depth}");
-        assert!(max_path <= 32, "path length {max_path}");
-
-        println!(
-            "n={N} hashes/append={:.4} max stack depth={max_depth} max proof hashes={max_path} \
-             combines={:.1}% stack ops/append={:.2}",
-            mmr.total_hashes() as f64 / N as f64,
-            100.0 * combines as f64 / N as f64,
-            (N + 2 * combines) as f64 / N as f64,
-        );
     }
 }
