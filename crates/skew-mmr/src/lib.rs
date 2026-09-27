@@ -3,12 +3,13 @@
 //! An append-only set commitment holding a stack of complete binary trees, where a rank-`k`
 //! tree holds `2^(k+1) - 1` elements. The carry rule is skew binary addition: if the two
 //! smallest trees have equal rank, the new element becomes the root of their combination;
-//! otherwise it becomes a singleton. Either branch is **exactly one hash**.
+//! otherwise it becomes a singleton.
 //!
-//! That flatness is the point. A standard MMR does `1 + trailing_ones(n)` hashes per append —
-//! amortized ~2, but worst case `O(log n)`, which one unlucky caller pays in full. Here every
-//! append costs the same, and the stack is touched either once (a push) or three times
-//! (two pops and a push), never `O(log n)`.
+//! A singleton's root is the element itself, so **a push costs no hash and a combine costs
+//! one**. Pushes are about half of all appends, so that is ~0.5 hashes amortized with a worst
+//! case of 1. A standard MMR does `1 + trailing_ones(n)` -- amortized ~2, but worst case
+//! `O(log n)`, which one unlucky caller pays in full. The stack is touched either once (a push)
+//! or three times (two pops and a push), never `O(log n)`.
 //!
 //! The element appended becomes the root of the new tree, so elements sit at every node rather
 //! than only at leaves. Stack depth is `O(log n)` and an inclusion proof is one step per level
@@ -18,7 +19,8 @@ pub mod hash;
 
 use hash::{EMPTY, Hash, node};
 
-/// One node on the path: the element it holds and the roots of its two subtrees.
+/// One node on the path: the element it holds and the roots of its two subtrees. For a leaf
+/// the subtree roots are unused, since a leaf's root is its element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
     pub element: Hash,
@@ -51,10 +53,9 @@ impl SkewMmr {
         }
     }
 
-    /// Append an element. Always performs exactly one hash.
+    /// Append an element. Performs one hash when it combines, none when it pushes.
     pub fn append(&mut self, element: Hash) {
         self.len += 1;
-        self.hashes += 1;
 
         let top = self.stack.len();
         if top < 2 || self.stack[top - 1].rank != self.stack[top - 2].rank {
@@ -67,6 +68,7 @@ impl SkewMmr {
         let left = self.stack.pop().expect("checked above");
         let right = self.stack.pop().expect("checked above");
         self.stack.push(Node::internal(element, left, right));
+        self.hashes += 1;
     }
 
     /// Build an inclusion proof for the element at `index`, in append order.
@@ -83,6 +85,12 @@ impl SkewMmr {
     /// The commitment: one root per tree, which is the whole on-chain state alongside `len`.
     pub fn roots(&self) -> Vec<Hash> {
         self.stack.iter().map(|node| node.root).collect()
+    }
+
+    /// Rank of each tree. Public data -- it is determined by `len` -- and the verifier needs it
+    /// to tell how deep a proof into a given tree has to be.
+    pub fn ranks(&self) -> Vec<u32> {
+        self.stack.iter().map(|node| node.rank).collect()
     }
 
     pub fn len(&self) -> usize {
@@ -122,18 +130,32 @@ impl Default for SkewMmr {
 
 /// Check that `element` is in the set committed to by `roots`.
 ///
-/// Each step recomputes its node from the element it holds and both child roots, so the path is
-/// pinned end to end by collision resistance: the last step must reproduce the tree's published
-/// root, which forces the step below it, and so on down to the proven node.
-pub fn verify(proof: &Proof, element: Hash, roots: &[Hash]) -> bool {
-    let (Some(&root), Some(first)) = (roots.get(proof.tree), proof.path.first()) else {
+/// Whether the proven node is a leaf is *derived*, never asserted by the prover: a path of `L`
+/// steps into a rank-`r` tree reaches a node whose own subtree has rank `r - L + 1`, so the
+/// proven node is a leaf exactly when `L == r + 1`. Without that, a prover could take any
+/// internal node's root -- which is a hash, not an element -- submit a one-step proof calling
+/// it a leaf, and prove membership of something never appended.
+///
+/// Above the proven node every step recomputes its node from the element it holds and both
+/// child roots, so the path is pinned end to end by collision resistance.
+pub fn verify(proof: &Proof, element: Hash, roots: &[Hash], ranks: &[u32]) -> bool {
+    let (Some(&root), Some(&rank), Some(first)) = (
+        roots.get(proof.tree),
+        ranks.get(proof.tree),
+        proof.path.first(),
+    ) else {
         return false;
     };
-    if first.element != element {
+    if first.element != element || proof.path.len() > rank as usize + 1 {
         return false;
     }
 
-    let mut current = node(first.element, first.left, first.right);
+    let proven_is_leaf = proof.path.len() == rank as usize + 1;
+    let mut current = match proven_is_leaf {
+        true => first.element,
+        false => node(first.element, first.left, first.right),
+    };
+
     for step in &proof.path[1..] {
         // No direction bit: it is enough that the node below is one of this node's children.
         if current != step.left && current != step.right {
@@ -152,9 +174,10 @@ struct Node {
 }
 
 impl Node {
+    /// A singleton's root is the element itself, so appending one costs no hash.
     fn leaf(element: Hash) -> Self {
         Self {
-            root: node(element, EMPTY, EMPTY),
+            root: element,
             rank: 0,
             element,
             children: None,
@@ -226,10 +249,11 @@ mod tests {
         for i in 0..200 {
             mmr.append(element(i));
             let roots = mmr.roots();
+            let ranks = mmr.ranks();
             for j in 0..=i {
                 let proof = mmr.prove(j);
                 assert!(
-                    verify(&proof, element(j), &roots),
+                    verify(&proof, element(j), &roots, &ranks),
                     "element {j} failed at len {}",
                     i + 1
                 );
@@ -237,11 +261,21 @@ mod tests {
         }
     }
 
-    /// The whole point of the skew carry rule.
+    /// A push hashes nothing and a combine hashes once, so the worst case is flat at 1 and the
+    /// average is about a half.
     #[test]
-    fn one_hash_per_append() {
-        let mmr = filled(100_000);
-        assert_eq!(mmr.total_hashes(), mmr.len());
+    fn hashes_only_on_combine() {
+        let mut mmr = SkewMmr::new();
+        let mut combines = 0;
+        for i in 0..100_000 {
+            let before = mmr.depth();
+            mmr.append(element(i));
+            if mmr.depth() < before {
+                combines += 1;
+            }
+            assert_eq!(mmr.total_hashes(), combines);
+        }
+        assert!(mmr.total_hashes() < mmr.len() / 2 + 32);
     }
 
     #[test]
@@ -250,7 +284,7 @@ mod tests {
         for _ in 0..1000 {
             mmr.append(element(mmr.len()));
 
-            let ranks: Vec<u32> = mmr.stack.iter().map(|node| node.rank).collect();
+            let ranks = mmr.ranks();
             let sizes: usize = mmr.stack.iter().map(|node| node.size()).sum();
             assert_eq!(sizes, mmr.len());
 
@@ -268,34 +302,59 @@ mod tests {
     fn rejects_bad_proofs() {
         let mmr = filled(100);
         let roots = mmr.roots();
+        let ranks = mmr.ranks();
         let proof = mmr.prove(40);
-        assert!(verify(&proof, element(40), &roots));
+        assert!(verify(&proof, element(40), &roots, &ranks));
 
-        assert!(!verify(&proof, element(41), &roots));
-        assert!(!verify(&proof, 0, &roots));
+        assert!(!verify(&proof, element(41), &roots, &ranks));
+        assert!(!verify(&proof, 0, &roots, &ranks));
 
         let elsewhere = Proof {
             tree: (proof.tree + 1) % roots.len(),
             ..proof.clone()
         };
-        assert!(!verify(&elsewhere, element(40), &roots));
+        assert!(!verify(&elsewhere, element(40), &roots, &ranks));
 
         let out_of_range = Proof {
             tree: roots.len(),
             ..proof.clone()
         };
-        assert!(!verify(&out_of_range, element(40), &roots));
+        assert!(!verify(&out_of_range, element(40), &roots, &ranks));
 
         let mut tampered = proof.clone();
         tampered.path.last_mut().unwrap().element ^= 1;
-        assert!(!verify(&tampered, element(40), &roots));
+        assert!(!verify(&tampered, element(40), &roots, &ranks));
 
         let mut truncated = proof.clone();
         truncated.path.pop();
-        assert!(!verify(&truncated, element(40), &roots));
+        assert!(!verify(&truncated, element(40), &roots, &ranks));
 
         let stale: Vec<Hash> = roots.iter().map(|r| r.wrapping_add(1)).collect();
-        assert!(!verify(&proof, element(40), &stale));
+        assert!(!verify(&proof, element(40), &stale, &ranks));
+    }
+
+    /// A leaf's root is a bare element, so an internal node's root must not be passable off as
+    /// one. The path length required by the tree's rank is what prevents it.
+    #[test]
+    fn rejects_internal_root_claimed_as_leaf() {
+        let mmr = filled(100);
+        let roots = mmr.roots();
+        let ranks = mmr.ranks();
+
+        // Pick a tree whose root is a hash rather than a bare element.
+        let tree = ranks
+            .iter()
+            .position(|&rank| rank > 0)
+            .expect("a tall tree");
+        let forged = Proof {
+            tree,
+            path: vec![Step {
+                element: roots[tree],
+                left: EMPTY,
+                right: EMPTY,
+            }],
+        };
+        assert!(!verify(&forged, roots[tree], &roots, &ranks));
     }
 
     #[test]
@@ -313,13 +372,14 @@ mod tests {
             }
             max_depth = max_depth.max(mmr.depth());
         }
-        assert_eq!(mmr.total_hashes(), N);
+        assert_eq!(mmr.total_hashes(), combines);
 
         let roots = mmr.roots();
+        let ranks = mmr.ranks();
         let mut max_path = 0;
         for i in (0..N).step_by(997) {
             let proof = mmr.prove(i);
-            assert!(verify(&proof, element(i), &roots));
+            assert!(verify(&proof, element(i), &roots, &ranks));
             max_path = max_path.max(proof.path.len());
         }
 

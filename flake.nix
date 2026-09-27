@@ -38,7 +38,10 @@
               rustToolchain
               rust-analyzer
               foundry
+              solc
             ];
+
+            shellHook = "export FOUNDRY_SOLC=${pkgs.solc}/bin/solc";
           };
         };
       }
