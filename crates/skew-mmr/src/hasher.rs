@@ -1,10 +1,8 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash as _, Hasher as _};
 
-use crate::element::Element;
-
 /// Hasher trait for hashing an element in a `SkewMmr`.
-pub trait Hasher<E: Element> {
+pub trait Hasher<E> {
     /// A collision-resistant hash function that hashes three elements.
     fn hash(element: &E, left: &E, right: &E) -> E;
 }

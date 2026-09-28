@@ -1,23 +1,22 @@
 use std::marker::PhantomData;
 
-use crate::element::Element;
 use crate::hasher::Hasher;
 
 /// An inclusion proof for an element in a [`crate::SkewMmr`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Proof<E: Element, H: Hasher<E>> {
+pub struct Proof<E, H: Hasher<E>> {
     /// Index into `roots` and `ranks`.
     pub tree: usize,
     /// The children of the proven node. None if it is a leaf.
     pub children: Option<(E, E)>,
     /// Ancestors of the proven node, closest first.
     pub path: Vec<Step<E>>,
-    pub(crate) hasher: PhantomData<H>,
+    pub hasher: PhantomData<H>,
 }
 
 /// One ancestor of the proven node.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Step<E: Element> {
+pub struct Step<E> {
     pub element: E,
     /// The child that the path does not descend into.
     pub sibling: E,
@@ -25,8 +24,22 @@ pub struct Step<E: Element> {
     pub right: bool,
 }
 
-impl<E: Element, H: Hasher<E>> Proof<E, H> {
+impl<E, H: Hasher<E>> Proof<E, H> {
+    pub fn new(tree: usize, children: Option<(E, E)>, path: Vec<Step<E>>) -> Self {
+        Self {
+            tree,
+            children,
+            path,
+            hasher: PhantomData,
+        }
+    }
+}
+
+impl<E: Clone + PartialEq, H: Hasher<E>> Proof<E, H> {
     /// Verifies that `element` is held by the accumulator described by `roots` and `ranks`.
+    ///
+    /// `roots` and `ranks` must come from the same frontier, and must be authenticated by
+    /// the caller. Mixing frontiers lets a tree root pass as a leaf.
     pub fn verify(&self, roots: &[E], ranks: &[u32], element: &E) -> bool {
         let (Some(root), Some(&rank)) = (roots.get(self.tree), ranks.get(self.tree)) else {
             return false;
@@ -52,7 +65,6 @@ impl<E: Element, H: Hasher<E>> Proof<E, H> {
         current == *root
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,10 +92,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_different_element() {
+    fn rejects_another_member() {
         let (roots, ranks, proof) = sample(40);
-        assert!(!proof.verify(&roots, &ranks, &41), "another member");
-        assert!(!proof.verify(&roots, &ranks, &1000), "a non-member");
+        assert!(!proof.verify(&roots, &ranks, &41));
+    }
+
+    #[test]
+    fn rejects_a_non_member() {
+        let (roots, ranks, proof) = sample(40);
+        assert!(!proof.verify(&roots, &ranks, &1000));
     }
 
     #[test]
@@ -121,13 +138,34 @@ mod tests {
             .position(|&rank| rank > 0)
             .expect("a tall tree");
 
-        let forged = SampleProof {
-            tree,
-            children: None,
-            path: Vec::new(),
-            hasher: PhantomData,
-        };
+        let forged = SampleProof::new(tree, None, Vec::new());
         assert!(!forged.verify(&roots, &ranks, &roots[tree]));
+    }
+
+    #[test]
+    fn rejects_a_leaf_claimed_as_a_tree_root() {
+        let mmr = filled(100);
+        let (roots, ranks) = (mmr.roots(), mmr.ranks());
+        let tree = ranks
+            .iter()
+            .position(|&rank| rank > 0)
+            .expect("a tall tree");
+
+        let forged = SampleProof::new(tree, Some((0, 1)), Vec::new());
+        assert!(!forged.verify(&roots, &ranks, &0));
+    }
+
+    #[test]
+    fn rejects_a_path_longer_than_the_tree() {
+        let (roots, ranks, proof) = sample(40);
+        let mut path = proof.path.clone();
+        path.extend(proof.path.iter().cloned());
+        assert!(
+            path.len() > ranks[proof.tree] as usize,
+            "path outgrows the tree"
+        );
+
+        assert!(!SampleProof { path, ..proof }.verify(&roots, &ranks, &40));
     }
 
     fn sample(element: u64) -> (Vec<u64>, Vec<u32>, SampleProof) {

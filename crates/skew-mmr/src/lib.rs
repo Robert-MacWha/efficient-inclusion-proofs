@@ -1,10 +1,8 @@
-pub mod element;
 pub mod hasher;
 pub mod proof;
 
 use std::marker::PhantomData;
 
-use element::Element;
 use hasher::Hasher;
 use proof::{Proof, Step};
 
@@ -12,22 +10,24 @@ use proof::{Proof, Step};
 ///
 /// SkewMmr is a modified MMR (Merkle Mountain Range) that uses skew-binary-style
 /// carrying to append new elements in a maximum of O(1) hashes.
-pub struct SkewMmr<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> {
-    /// Perfect binary trees of decreasing ranks. Entires above `depth` are `None`.
+#[derive(Debug, Clone)]
+pub struct SkewMmr<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> {
+    /// Perfect binary trees of decreasing ranks. Entries above `depth` are `None`.
     stack: [Option<Node<E>>; MAX_DEPTH],
     depth: usize,
     len: usize,
     hasher: PhantomData<H>,
 }
 
-struct Node<E: Element> {
+#[derive(Debug, Clone)]
+struct Node<E: Clone> {
     root: E,
     rank: u32,
     element: E,
     children: Option<Box<(Node<E>, Node<E>)>>,
 }
 
-impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     pub fn new() -> Self {
         Self {
             stack: std::array::from_fn(|_| None),
@@ -51,7 +51,7 @@ impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> 
         self.push(Node::internal::<H>(element, left, right));
     }
 
-    /// Prove the element at `index`.
+    /// Prove the element at `index`, counted in insertion order.
     pub fn prove(&self, index: usize) -> Proof<E, H> {
         assert!(index < self.len, "index out of range");
 
@@ -60,12 +60,7 @@ impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> 
         let children = self.node(tree).walk(offset, &mut path);
         path.reverse();
 
-        Proof {
-            tree,
-            children,
-            path,
-            hasher: PhantomData,
-        }
+        Proof::new(tree, children, path)
     }
 
     pub fn roots(&self) -> Vec<E> {
@@ -122,13 +117,13 @@ impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> 
     }
 }
 
-impl<const MAX_DEPTH: usize, E: Element, H: Hasher<E>> Default for SkewMmr<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> Default for SkewMmr<MAX_DEPTH, E, H> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<E: Element> Node<E> {
+impl<E: Clone> Node<E> {
     fn leaf(element: E) -> Self {
         Self {
             root: element.clone(),
