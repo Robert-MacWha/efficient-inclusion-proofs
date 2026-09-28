@@ -4,8 +4,8 @@ pragma solidity ^0.8.33;
 import {SkewMmr} from "./SkewMmr.sol";
 
 /// @title Skew-MMR frontier verifier
-/// @notice Commits to the frontier on every append so a caller can pass the roots in
-///         calldata and have them checked against a single storage word.
+/// @notice Commits to the frontier on every append so a caller can pass it in calldata
+///         and have it checked against a single storage word.
 contract SkewMmrVerifier is SkewMmr {
     uint256 public constant HISTORY_SIZE = 64;
 
@@ -29,8 +29,8 @@ contract SkewMmrVerifier is SkewMmr {
         history[_count(s) % HISTORY_SIZE] = _commit(top, s);
     }
 
-    /// @notice Reverts unless `frontier` and `histState` were the roots and state this MMR held
-    ///         at `_count(histState)`.
+    /// @notice Reverts unless `frontier` and `histState` were the frontier and state this MMR
+    ///         held at `_count(histState)`.
     function verifyFrontier(uint256 histState, bytes32[] calldata frontier) public view {
         if (frontier.length != _depth(histState)) revert BadFrontier();
 

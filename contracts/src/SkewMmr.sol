@@ -6,10 +6,10 @@ pragma solidity ^0.8.33;
 contract SkewMmr {
     uint256 public constant MAX_DEPTH = 26;
 
-    /// @dev Chain seed.
+    /// @dev Initial value for the tree folding chain.
     bytes32 internal constant IV = bytes32(0);
 
-    /// @dev Tree roots, smallest-ranked last. Entries above `depth` are undefined.
+    /// @dev The frontier: tree roots, smallest-ranked last. Entries above `depth` are undefined.
     bytes32[MAX_DEPTH] public roots;
 
     /// @dev 0..25  - `rank`s
@@ -39,11 +39,11 @@ contract SkewMmr {
     ///      1. If the two smallest trees have the same rank, merge them into a tree of rank+1.
     ///      2. Otherwise, append the new element as a tree of rank 0.
     ///
-    ///      Either branch writes `roots[slot]`, and `chains[slot - 1]` is stable across it.
+    ///      Either branch writes `roots[tree]`, and `chains[tree - 1]` is stable across it.
     function append(bytes32 element) public virtual returns (bytes32 top) {
         uint256 s = state;
         uint256 d = _depth(s);
-        uint256 slot;
+        uint256 tree;
         uint256 rank;
         bytes32 root;
 
@@ -52,7 +52,7 @@ contract SkewMmr {
             root = keccak256(abi.encode(element, roots[d - 1], roots[d - 2]));
             roots[d - 2] = root;
 
-            slot = d - 2;
+            tree = d - 2;
             rank = _rank(s, d - 1) + 1;
             d -= 1;
             s = _setRank(s, d, 0);
@@ -62,21 +62,21 @@ contract SkewMmr {
             root = element;
             roots[d] = root;
 
-            slot = d;
+            tree = d;
             rank = 0;
             d += 1;
         }
 
-        top = _link(slot >= 1 ? chains[slot - 1] : IV, root);
-        chains[slot] = top;
+        top = _link(tree >= 1 ? chains[tree - 1] : IV, root);
+        chains[tree] = top;
 
-        s = _setRank(s, slot, rank);
+        s = _setRank(s, tree, rank);
         s = _setDepth(s, d);
         state = _incrementCount(s);
     }
 
-    function ranks(uint256 index) external view returns (uint8) {
-        return uint8(_rank(state, index));
+    function ranks(uint256 tree) external view returns (uint8) {
+        return uint8(_rank(state, tree));
     }
 
     function depth() external view returns (uint256) {
@@ -87,20 +87,20 @@ contract SkewMmr {
         return _count(state);
     }
 
-    function _link(bytes32 chain, bytes32 root) internal pure returns (bytes32 next) {
+    function _link(bytes32 prev, bytes32 root) internal pure returns (bytes32 chain) {
         assembly ("memory-safe") {
-            mstore(0x00, chain)
+            mstore(0x00, prev)
             mstore(0x20, root)
-            next := keccak256(0x00, 0x40)
+            chain := keccak256(0x00, 0x40)
         }
     }
 
-    function _rank(uint256 s, uint256 index) internal pure returns (uint256) {
-        return (s >> (8 * index)) & 0xff;
+    function _rank(uint256 s, uint256 tree) internal pure returns (uint256) {
+        return (s >> (8 * tree)) & 0xff;
     }
 
-    function _setRank(uint256 s, uint256 index, uint256 rank) internal pure returns (uint256) {
-        uint256 offset = 8 * index;
+    function _setRank(uint256 s, uint256 tree, uint256 rank) internal pure returns (uint256) {
+        uint256 offset = 8 * tree;
         return (s & ~(uint256(0xff) << offset)) | (rank << offset);
     }
 

@@ -55,9 +55,8 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         let roots = mmr.roots();
         let ranks = mmr.ranks();
         for tree in 0..depth {
-            let index = U256::from(tree);
-            let root = contract.roots(index).call().await?;
-            let rank = contract.ranks(index).call().await?;
+            let root = contract.roots(U256::from(tree)).call().await?;
+            let rank = contract.ranks(U256::from(tree)).call().await?;
             assert_eq!(root.0, roots[tree], "root {tree} after {n} appends");
             assert_eq!(
                 u32::from(rank),
