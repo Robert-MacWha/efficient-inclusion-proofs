@@ -21,4 +21,4 @@ Append gas varies significantly by branch. These tests were run using the `kecca
 | Merge, one hash                  | 2047 / 4096 | 14,755          |
 | Push, `roots` slot written first | 12 / 4096   | 28,476 - 45,576 |
 
-The first two rows are each ~50% of appends. The third row happens when only a new maximum depth is reached, ~log2(n) times over the lifetime of the structure. This can be avoided by pre-warming the `roots` slots to arbitrary non-zero values in the constructor / an initializer.
+The first two rows are each ~50% of appends. The third row happens when only a new maximum depth is reached, ~log2(n) times over the lifetime of the structure. This can be reduced by pre-warming the `roots` slots to arbitrary non-zero values in the constructor / an initializer.
