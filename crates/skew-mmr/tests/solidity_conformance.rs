@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use alloy::primitives::{U256, keccak256};
+use alloy::primitives::{FixedBytes, U256, keccak256};
 use alloy::providers::ProviderBuilder;
 use alloy::sol;
 use skew_mmr::SkewMmr;
@@ -9,10 +9,10 @@ use skew_mmr::hasher::Hasher;
 sol!(
     #[sol(rpc)]
     Contract,
-    "../../contracts/out/SkewMmr.sol/SkewMmr.json"
+    "../../contracts/out/SkewMmrVerifier.sol/SkewMmrVerifier.json"
 );
 
-type Mmr = SkewMmr<27, [u8; 32], KeccakHasher>;
+type Mmr = SkewMmr<26, [u8; 32], KeccakHasher>;
 
 /// Matches `keccak256(abi.encode(element, left, right))` in `SkewMmr.sol`.
 struct KeccakHasher;
@@ -65,6 +65,13 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
                 "rank {tree} after {n} appends"
             );
         }
+
+        let frontier: Vec<FixedBytes<32>> = roots.iter().map(|root| (*root).into()).collect();
+        contract
+            .verifyFrontier(contract.state().call().await?, frontier)
+            .call()
+            .await
+            .map_err(|e| format!("frontier rejected after {n} appends: {e}"))?;
     }
 
     Ok(())
