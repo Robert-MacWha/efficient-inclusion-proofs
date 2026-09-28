@@ -13,6 +13,8 @@ Skew-MMR is an efficient append-only set commitment structure. It's a variant of
 
 ### Append gas
 
+Gas cost of appending a new leaf to the MMR. The `Share` column indicates the percentage of the calls that follow each branch.
+
 Append gas varies by branch. These tests were run using the `keccak256` hash function. To estimate the gas cost of using a more expensive hash function, add the cost difference to the `Merge` row's gas.
 
 | Branch                    | Share       | Gas    |
@@ -24,12 +26,8 @@ Append gas varies by branch. These tests were run using the `keccak256` hash fun
 
 ### Verify gas
 
-`verifyFrontier` against cold storage, versus the `2100 * depth` of cold SLOADs it replaces.
+Gas cost of verifying a calldata-provided state & frontier against a historical value stored in contract storage.
 
-| Depth      | Gas     | Cold SLOADs |
-| ---------- | ------- | ----------- |
-| 5          | 4,733   | 10,500      |
-| 11         | 6,545   | 23,100      |
-| 26 (proj.) | ~11,075 | 54,600      |
-
-302 gas per additional root.
+| Depth | Gas    |
+| ----- | ------ |
+| 26    | 11,075 |
