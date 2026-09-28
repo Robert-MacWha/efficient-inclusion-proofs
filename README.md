@@ -24,7 +24,6 @@ Append gas varies by branch. These tests were run using the `keccak256` hash fun
 | Push, new maximum depth   | 12 / 4096   | 24,143  |
 | Average                   | 100%        | ~26,000 |
 
-
 ### Verify gas
 
 Gas cost of verifying a calldata-provided state & frontier against a historical value stored in contract storage.
