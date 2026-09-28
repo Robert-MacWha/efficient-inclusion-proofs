@@ -6,11 +6,10 @@ Skew-MMR is an efficient append-only set commitment structure. It's a variant of
 
 ### Operations
 
-| Operation         | Mean            | Max             |
-| ----------------- | --------------- | --------------- |
-| Append (hashes)   | 0.5             | 1               |
-| Verify (hashes)   | log2(n) - 1.5   | log2(n) - 1     |
-| Verify (elements) | 2 * log2(n) - 3 | 2 * log2(n) - 2 |
+| Operation | Mean Hashes   | Max Hashes  |
+| --------- | ------------- | ----------- |
+| Append    | 0.5           | 1           |
+| Verify    | log2(n) - 1.5 | log2(n) - 1 |
 
 ### Gas
 
