@@ -28,6 +28,6 @@ Append gas varies by branch. These tests were run using the `keccak256` hash fun
 
 Gas cost of verifying a calldata-provided state & frontier against a historical value stored in contract storage.
 
-| Depth | Gas    |
-| ----- | ------ |
-| 26    | 11,075 |
+| Depth | Execution Gas | Calldata Gas |
+| ----- | ------------- | ------------ |
+| 26    | ~11,075       | ~13,700      |

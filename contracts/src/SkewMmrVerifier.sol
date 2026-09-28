@@ -44,14 +44,8 @@ contract SkewMmrVerifier is SkewMmr {
         }
     }
 
-    /// @dev The leading `0x02` keeps commitments out of the chain-link preimage space.
-    function _commit(bytes32 top, uint256 s) private pure returns (bytes32 commitment) {
-        assembly ("memory-safe") {
-            let p := mload(0x40)
-            mstore(p, 0x02)
-            mstore(add(p, 0x20), top)
-            mstore(add(p, 0x40), s)
-            commitment := keccak256(p, 0x60)
-        }
+    /// @dev Binds the frontier to the state it was reached at.
+    function _commit(bytes32 top, uint256 s) private pure returns (bytes32) {
+        return _link(top, bytes32(s));
     }
 }
