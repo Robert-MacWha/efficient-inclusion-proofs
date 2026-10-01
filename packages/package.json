@@ -1,0 +1,28 @@
+{
+  "name": "skew-mmr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "constraints": "circom test/circuits/inclusion_full.circom --r1cs --O2 -l node_modules -o $(mktemp -d)"
+  },
+  "dependencies": {
+    "poseidon-lite": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "circom_tester": "^0.0.20",
+    "circomlib": "^2.0.5",
+    "typescript": "^5.8.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.8.1",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.8.1"
+}
