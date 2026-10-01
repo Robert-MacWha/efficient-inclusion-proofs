@@ -39,6 +39,10 @@
               rust-analyzer
               foundry
               solc
+
+              circom
+              nodejs_24
+              pnpm
             ];
 
             shellHook = "export FOUNDRY_SOLC=${pkgs.solc}/bin/solc";
