@@ -13,9 +13,9 @@ contract SkewMmr {
     bytes32[MAX_DEPTH] public roots;
 
     /// @dev 0..25  - `rank`s
-    ///      26     - unused, set at construction so the slot is never zero
-    ///      27     - `depth`
-    ///      28..31 - `count`
+    ///      26     - `depth`
+    ///      27..30 - `count`
+    ///      31     - unused, set at construction so the slot is never zero
     uint256 public state;
 
     /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
@@ -25,7 +25,7 @@ contract SkewMmr {
 
     /// @dev Warms up storage with non-zero values to avoid cold SSTOREs.
     constructor() {
-        state = 1 << 208;
+        state = 1 << 248;
         for (uint256 i = 0; i < MAX_DEPTH; ++i) {
             roots[i] = bytes32(uint256(1));
             chains[i] = bytes32(uint256(1));
@@ -105,18 +105,18 @@ contract SkewMmr {
     }
 
     function _depth(uint256 s) internal pure returns (uint256) {
-        return (s >> 216) & 0xff;
+        return (s >> 208) & 0xff;
     }
 
     function _setDepth(uint256 s, uint256 d) internal pure returns (uint256) {
-        return (s & ~(uint256(0xff) << 216)) | (d << 216);
+        return (s & ~(uint256(0xff) << 208)) | (d << 208);
     }
 
     function _count(uint256 s) internal pure returns (uint256) {
-        return s >> 224;
+        return (s >> 216) & 0xffffffff;
     }
 
     function _incrementCount(uint256 s) internal pure returns (uint256) {
-        return s + (uint256(1) << 224);
+        return s + (uint256(1) << 216);
     }
 }
