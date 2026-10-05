@@ -1,4 +1,5 @@
 pub mod hasher;
+pub mod state;
 
 use std::borrow::Borrow;
 use std::marker::PhantomData;
@@ -13,6 +14,7 @@ use ark_r1cs_std::{
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use self::hasher::HasherGadget;
+use self::state::StateVar;
 use crate::hasher::Hasher;
 use crate::proof::{Proof, Step};
 
@@ -21,8 +23,8 @@ use crate::proof::{Proof, Step};
 pub struct ProofVar<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> {
     /// Roots of the frontier's trees. Entries above `depth` are padding.
     pub roots: [FpVar<F>; MAX_DEPTH],
-    /// The frontier packed by [`crate::SkewMmr::state`].
-    pub state: FpVar<F>,
+    /// The frontier the proof is checked against.
+    pub state: StateVar<MAX_DEPTH, F>,
     /// The proven element.
     pub element: FpVar<F>,
     /// Index into `roots` and the rank bytes of `state`.
@@ -50,21 +52,13 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
     pub fn verify(&self) -> Result<(), SynthesisError> {
-        let (ranks, depth) = unpack::<MAX_DEPTH, F>(&self.state)?;
-
-        // Select the root and rank of the tree that the proven node belongs to. A tree at or
-        // above `depth` is padding, which reads as root 0 of rank 0 and would match an empty path.
-        let populated = prefix_mask::<MAX_DEPTH, F>(&depth)?;
+        // `rank` enforces that the tree is live, so the root selected below is never padding.
+        let rank = self.state.rank(&self.tree)?;
         let mut root = FpVar::zero();
-        let mut rank = FpVar::zero();
-        let mut live = Boolean::FALSE;
-        for i in 0..MAX_DEPTH {
+        for (i, candidate) in self.roots.iter().enumerate() {
             let hit = self.tree.is_eq(&FpVar::constant(F::from(i as u64)))?;
-            root = hit.select(&self.roots[i], &root)?;
-            rank = hit.select(&ranks[i], &rank)?;
-            live |= &hit & &populated[i];
+            root = hit.select(candidate, &root)?;
         }
-        live.enforce_equal(&Boolean::TRUE)?;
 
         let active = prefix_mask::<MAX_DEPTH, F>(&self.path_len)?;
         let within = prefix_mask::<MAX_DEPTH, F>(&rank)?;
@@ -116,11 +110,7 @@ where
             roots: try_from_fn(|i| {
                 FpVar::new_variable(cs.clone(), || Ok(proof.roots[i].unwrap_or_default()), mode)
             })?,
-            state: FpVar::new_variable(
-                cs.clone(),
-                || Ok(F::from_le_bytes_mod_order(&proof.state)),
-                mode,
-            )?,
+            state: StateVar::new_variable(cs.clone(), || Ok(proof.state), mode)?,
             element: FpVar::new_variable(cs.clone(), || Ok(proof.element), mode)?,
             tree: FpVar::new_variable(cs.clone(), || Ok(F::from(proof.tree as u64)), mode)?,
             children: [
@@ -157,18 +147,8 @@ impl<F: PrimeField> AllocVar<Step<F>, F> for StepVar<F> {
     }
 }
 
-/// Reads the `rank`s and `depth` from a word packed by [`crate::SkewMmr::state`].
-fn unpack<const MAX_DEPTH: usize, F: PrimeField>(
-    state: &FpVar<F>,
-) -> Result<([FpVar<F>; MAX_DEPTH], FpVar<F>), SynthesisError> {
-    let (bits, _) = state.to_bits_le_with_top_bits_zero(8 * (MAX_DEPTH + 5) + 1)?;
-    let byte = |i: usize| Boolean::le_bits_to_fp(&bits[8 * i..8 * (i + 1)]);
-
-    Ok((try_from_fn(&byte)?, byte(MAX_DEPTH)?))
-}
-
 /// Expands `value` into the mask `i < value` over `0..N`, enforcing that it lands in `0..=N`.
-fn prefix_mask<const N: usize, F: PrimeField>(
+pub(crate) fn prefix_mask<const N: usize, F: PrimeField>(
     value: &FpVar<F>,
 ) -> Result<[Boolean<F>; N], SynthesisError> {
     let mut reached = Boolean::FALSE;
@@ -184,7 +164,7 @@ fn prefix_mask<const N: usize, F: PrimeField>(
 }
 
 /// Builds an array from one fallible item per index.
-fn try_from_fn<T, const N: usize>(
+pub(crate) fn try_from_fn<T, const N: usize>(
     f: impl FnMut(usize) -> Result<T, SynthesisError>,
 ) -> Result<[T; N], SynthesisError> {
     let items = (0..N).map(f).collect::<Result<Vec<_>, _>>()?;
@@ -206,7 +186,6 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fr;
-    use ark_r1cs_std::GR1CSVar;
     use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef};
     use ark_std::rand::Rng;
     use ark_std::test_rng;
@@ -273,39 +252,6 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn unpacks_a_packed_frontier() {
-        let mmr: Mmr = filled(60);
-        let cs = ConstraintSystem::<Fr>::new_ref();
-        let state = input(&cs, Fr::from_le_bytes_mod_order(&mmr.state()));
-
-        let (ranks, depth) = unpack::<MAX_DEPTH, Fr>(&state).unwrap();
-
-        assert!(cs.is_satisfied().unwrap());
-        assert_eq!(depth.value().unwrap(), Fr::from(mmr.depth() as u64));
-        for (tree, rank) in ranks.iter().enumerate() {
-            let packed = mmr.ranks()[tree].unwrap_or(0);
-            assert_eq!(rank.value().unwrap(), Fr::from(packed), "rank {tree}");
-        }
-    }
-
-    #[test]
-    fn rejects_a_state_above_the_layout() {
-        let cs = ConstraintSystem::<Fr>::new_ref();
-        let mut bytes = [0u8; 32];
-        bytes[MAX_DEPTH + 5] = 2;
-        let state = input(&cs, Fr::from_le_bytes_mod_order(&bytes));
-
-        let _ = unpack::<MAX_DEPTH, Fr>(&state).unwrap();
-
-        assert!(!cs.is_satisfied().unwrap());
-    }
-
-    fn input(cs: &ConstraintSystemRef<Fr>, value: Fr) -> FpVar<Fr> {
-        FpVar::new_input(cs.clone(), || Ok(value)).unwrap()
-    }
-
     fn check(proof: &SampleProof) -> bool {
         circuit(proof).is_satisfied().unwrap()
     }

@@ -1,14 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::hasher::Hasher;
+use crate::state::State;
 
 /// An inclusion proof for an element in a [`crate::SkewMmr`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proof<const MAX_DEPTH: usize, E, H: Hasher<E>> {
     /// Roots of the frontier's trees. Entries above `depth` are `None`.
     pub roots: [Option<E>; MAX_DEPTH],
-    /// The frontier packed by [`crate::SkewMmr::state`].
-    pub state: [u8; 32],
+    /// The frontier the proof is checked against.
+    pub state: State<MAX_DEPTH>,
     /// The proven element.
     pub element: E,
     /// Index into `roots` and the rank bytes of `state`.
@@ -35,7 +36,7 @@ pub struct Step<E> {
 impl<const MAX_DEPTH: usize, E, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
     pub fn new(
         roots: [Option<E>; MAX_DEPTH],
-        state: [u8; 32],
+        state: State<MAX_DEPTH>,
         element: E,
         tree: usize,
         children: Option<(E, E)>,
@@ -62,13 +63,12 @@ impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>> Proof
     /// them against the accumulator before trusting a `true`. Mixing frontiers lets a tree
     /// root pass as a leaf.
     pub fn verify(&self) -> bool {
-        let Some(Some(root)) = self.roots.get(self.tree) else {
+        let (Some(Some(root)), Some(rank)) =
+            (self.roots.get(self.tree), self.state.rank(self.tree))
+        else {
             return false;
         };
-        if self.tree >= self.state[MAX_DEPTH] as usize {
-            return false;
-        }
-        let rank = self.state[self.tree] as usize;
+        let rank = rank as usize;
         let Some(path) = self.path.get(..self.path_len) else {
             return false;
         };

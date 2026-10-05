@@ -2,11 +2,13 @@
 pub mod constraints;
 pub mod hasher;
 pub mod proof;
+pub mod state;
 
 use std::{array::from_fn, marker::PhantomData};
 
 use hasher::Hasher;
 use proof::{Proof, Step};
+use state::State;
 
 /// An append-only set commitment structure.
 ///
@@ -86,23 +88,9 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
         from_fn(|i| (i < self.depth).then(|| self.node(i).rank))
     }
 
-    /// The frontier packed little-endian into the `state` word of `SkewMmr.sol`:
-    ///  - `0..MAX_DEPTH`       - `rank`s
-    ///  - `MAX_DEPTH`          - `depth`
-    ///  - `MAX_DEPTH + 1..+5`  - `count`
-    ///  - `MAX_DEPTH + 5`      - a sentinel, so that a live accumulator is never zero
-    pub fn state(&self) -> [u8; 32] {
-        const { assert!(MAX_DEPTH + 5 < 32, "the state outgrows a word") }
-
-        let mut state = [0u8; 32];
-        for (tree, rank) in state.iter_mut().enumerate().take(self.depth) {
-            *rank = self.node(tree).rank as u8;
-        }
-
-        state[MAX_DEPTH] = self.depth as u8;
-        state[MAX_DEPTH + 1..MAX_DEPTH + 5].copy_from_slice(&(self.len as u32).to_le_bytes());
-        state[MAX_DEPTH + 5] = 1;
-        state
+    /// The frontier, packed by [`State`].
+    pub fn state(&self) -> State<MAX_DEPTH> {
+        State::new(&self.ranks(), self.len as u32)
     }
 
     pub fn len(&self) -> usize {
