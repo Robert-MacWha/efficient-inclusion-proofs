@@ -1,7 +1,7 @@
 pub mod hasher;
 pub mod proof;
 
-use std::marker::PhantomData;
+use std::{array::from_fn, marker::PhantomData};
 
 use hasher::Hasher;
 use proof::{Proof, Segment};
@@ -25,8 +25,8 @@ impl<const BATCH: usize, const DEPTH: usize, E: Clone, H: Hasher<E>> HashChain<B
 
     pub fn new() -> Self {
         Self {
-            chains: std::array::from_fn(|_| H::iv()),
-            levels: std::array::from_fn(|_| Vec::new()),
+            chains: from_fn(|_| H::iv()),
+            levels: from_fn(|_| Vec::new()),
             hasher: PhantomData,
         }
     }

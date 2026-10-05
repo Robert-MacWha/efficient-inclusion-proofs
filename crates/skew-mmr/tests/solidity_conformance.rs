@@ -47,6 +47,11 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         let depth: usize = contract.depth().call().await?.to();
         assert_eq!(depth, mmr.depth(), "depth after {n} appends");
         assert_eq!(
+            U256::from_le_slice(&mmr.state()),
+            contract.state().call().await?,
+            "state after {n} appends"
+        );
+        assert_eq!(
             contract.count().call().await?.to::<usize>(),
             mmr.len(),
             "count after {n} appends"
@@ -57,15 +62,16 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         for tree in 0..depth {
             let root = contract.roots(U256::from(tree)).call().await?;
             let rank = contract.ranks(U256::from(tree)).call().await?;
-            assert_eq!(root.0, roots[tree], "root {tree} after {n} appends");
+            assert_eq!(Some(root.0), roots[tree], "root {tree} after {n} appends");
             assert_eq!(
-                u32::from(rank),
+                Some(u32::from(rank)),
                 ranks[tree],
                 "rank {tree} after {n} appends"
             );
         }
 
-        let frontier: Vec<FixedBytes<32>> = roots.iter().map(|root| (*root).into()).collect();
+        let frontier: Vec<FixedBytes<32>> =
+            roots.iter().flatten().map(|root| (*root).into()).collect();
         contract
             .verifyFrontier(contract.state().call().await?, frontier)
             .call()

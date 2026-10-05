@@ -4,18 +4,18 @@ use crate::hasher::Hasher;
 
 /// An inclusion proof for an element in a [`crate::SkewMmr`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Proof<E, H: Hasher<E>> {
+pub struct Proof<const MAX_DEPTH: usize, E, H: Hasher<E>> {
     /// Index into `roots` and `ranks`.
     pub tree: usize,
     /// The children of the proven node. None if it is a leaf.
     pub children: Option<(E, E)>,
     /// Ancestors of the proven node, closest first.
-    pub path: Vec<Step<E>>,
+    pub path: [Option<Step<E>>; MAX_DEPTH],
     pub hasher: PhantomData<H>,
 }
 
 /// One ancestor of the proven node.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Step<E> {
     pub element: E,
     /// The child that the path does not descend into.
@@ -24,8 +24,8 @@ pub struct Step<E> {
     pub right: bool,
 }
 
-impl<E, H: Hasher<E>> Proof<E, H> {
-    pub fn new(tree: usize, children: Option<(E, E)>, path: Vec<Step<E>>) -> Self {
+impl<const MAX_DEPTH: usize, E, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
+    pub fn new(tree: usize, children: Option<(E, E)>, path: [Option<Step<E>>; MAX_DEPTH]) -> Self {
         Self {
             tree,
             children,
@@ -33,30 +33,42 @@ impl<E, H: Hasher<E>> Proof<E, H> {
             hasher: PhantomData,
         }
     }
+
+    /// Ancestors held by `path`. The path ends at the first gap.
+    pub fn path_len(&self) -> usize {
+        self.path.iter().map_while(Option::as_ref).count()
+    }
 }
 
-impl<E: Clone + PartialEq, H: Hasher<E>> Proof<E, H> {
+impl<const MAX_DEPTH: usize, E: Clone + PartialEq, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
     /// Verifies that `element` is held by the accumulator described by `roots` and `ranks`.
     ///
     /// `roots` and `ranks` must come from the same frontier, and must be authenticated by
     /// the caller. Mixing frontiers lets a tree root pass as a leaf.
-    pub fn verify(&self, roots: &[E], ranks: &[u32], element: &E) -> bool {
-        let (Some(root), Some(&rank)) = (roots.get(self.tree), ranks.get(self.tree)) else {
+    pub fn verify(
+        &self,
+        roots: &[Option<E>; MAX_DEPTH],
+        ranks: &[Option<u32>; MAX_DEPTH],
+        element: &E,
+    ) -> bool {
+        let (Some(Some(root)), Some(Some(rank))) = (roots.get(self.tree), ranks.get(self.tree))
+        else {
             return false;
         };
-        if self.path.len() > rank as usize {
+        let (len, rank) = (self.path_len(), *rank as usize);
+        if len > rank {
             return false;
         }
 
         // One step per level between the proven node and the tree root, so a node reached by
         // `L` steps in a tree of rank `r` has rank `r - L`, and is a leaf exactly when `L == r`.
-        let mut current = match (&self.children, self.path.len() == rank as usize) {
+        let mut current = match (&self.children, len == rank) {
             (None, true) => element.clone(),
             (Some((left, right)), false) => H::hash(element, left, right),
             _ => return false,
         };
 
-        for step in &self.path {
+        for step in self.path.iter().map_while(Option::as_ref) {
             current = match step.right {
                 true => H::hash(&step.element, &step.sibling, &current),
                 false => H::hash(&step.element, &current, &step.sibling),
@@ -65,13 +77,16 @@ impl<E: Clone + PartialEq, H: Hasher<E>> Proof<E, H> {
         current == *root
     }
 }
+
 #[cfg(test)]
 mod tests {
+    use std::array::from_fn;
+
     use super::*;
     use crate::hasher::StdHasher;
     use crate::testing::{Mmr, filled};
 
-    type SampleProof = Proof<u64, StdHasher>;
+    type SampleProof = Proof<32, u64, StdHasher>;
 
     #[test]
     fn proves_every_element_at_every_size() {
@@ -93,83 +108,96 @@ mod tests {
 
     #[test]
     fn rejects_another_member() {
-        let (roots, ranks, proof) = sample(40);
-        assert!(!proof.verify(&roots, &ranks, &41));
+        let (mmr, proof) = sample(40);
+        assert!(!proof.verify(&mmr.roots(), &mmr.ranks(), &41));
     }
 
     #[test]
     fn rejects_a_non_member() {
-        let (roots, ranks, proof) = sample(40);
-        assert!(!proof.verify(&roots, &ranks, &1000));
+        let (mmr, proof) = sample(40);
+        assert!(!proof.verify(&mmr.roots(), &mmr.ranks(), &1000));
     }
 
     #[test]
     fn rejects_a_proof_from_another_accumulator() {
-        let (roots, ranks, _) = sample(40);
+        let (mmr, _) = sample(40);
 
         let mut other = Mmr::new();
         other.append(1000);
         let forged = other.prove(0);
 
-        assert!(!forged.verify(&roots, &ranks, &1000));
+        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &1000));
     }
 
     #[test]
-    fn rejects_a_tree_out_of_range() {
-        let (roots, ranks, proof) = sample(40);
-        let tree = roots.len();
-        assert!(!SampleProof { tree, ..proof }.verify(&roots, &ranks, &40));
+    fn rejects_a_tree_above_the_depth() {
+        let (mmr, proof) = sample(40);
+        let tree = mmr.depth();
+
+        assert!(!SampleProof { tree, ..proof }.verify(&mmr.roots(), &mmr.ranks(), &40));
     }
 
     #[test]
     fn rejects_a_flipped_direction() {
-        let (roots, ranks, mut proof) = sample(40);
-        let step = proof.path.first_mut().unwrap();
+        let (mmr, mut proof) = sample(40);
+        let step = proof.path[0].as_mut().expect("a populated step");
         step.right = !step.right;
-        assert!(!proof.verify(&roots, &ranks, &40));
+
+        assert!(!proof.verify(&mmr.roots(), &mmr.ranks(), &40));
     }
 
     #[test]
     fn rejects_a_tree_root_claimed_as_a_leaf() {
-        let mmr = filled(100);
-        let (roots, ranks) = (mmr.roots(), mmr.ranks());
-        let tree = ranks
-            .iter()
-            .position(|&rank| rank > 0)
-            .expect("a tall tree");
+        let (mmr, tree) = tall_tree();
 
-        let forged = SampleProof::new(tree, None, Vec::new());
-        assert!(!forged.verify(&roots, &ranks, &roots[tree]));
+        let forged = SampleProof::new(tree, None, empty());
+        let root = mmr.roots()[tree].expect("a live tree");
+        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &root));
     }
 
     #[test]
     fn rejects_a_leaf_claimed_as_a_tree_root() {
-        let mmr = filled(100);
-        let (roots, ranks) = (mmr.roots(), mmr.ranks());
-        let tree = ranks
-            .iter()
-            .position(|&rank| rank > 0)
-            .expect("a tall tree");
+        let (mmr, tree) = tall_tree();
 
-        let forged = SampleProof::new(tree, Some((0, 1)), Vec::new());
-        assert!(!forged.verify(&roots, &ranks, &0));
+        let forged = SampleProof::new(tree, Some((0, 1)), empty());
+        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &0));
     }
 
     #[test]
     fn rejects_a_path_longer_than_the_tree() {
-        let (roots, ranks, proof) = sample(40);
-        let mut path = proof.path.clone();
-        path.extend(proof.path.iter().cloned());
-        assert!(
-            path.len() > ranks[proof.tree] as usize,
-            "path outgrows the tree"
-        );
+        let (mmr, proof) = sample(40);
+        let step = proof.path[0].clone();
+        let path = from_fn(|_| step.clone());
 
-        assert!(!SampleProof { path, ..proof }.verify(&roots, &ranks, &40));
+        assert!(!SampleProof { path, ..proof }.verify(&mmr.roots(), &mmr.ranks(), &40));
     }
 
-    fn sample(element: u64) -> (Vec<u64>, Vec<u32>, SampleProof) {
+    #[test]
+    fn ignores_steps_past_a_gap() {
+        let (mmr, mut proof) = sample(40);
+        let stranded = proof.path_len() + 1;
+        proof.path[stranded] = proof.path[0].clone();
+
+        assert!(proof.verify(&mmr.roots(), &mmr.ranks(), &40));
+    }
+
+    fn sample(element: u64) -> (Mmr, SampleProof) {
         let mmr = filled(100);
-        (mmr.roots(), mmr.ranks(), mmr.prove(element as usize))
+        let proof = mmr.prove(element as usize);
+        (mmr, proof)
+    }
+
+    fn tall_tree() -> (Mmr, usize) {
+        let mmr = filled(100);
+        let tree = mmr
+            .ranks()
+            .iter()
+            .position(|rank| rank.is_some_and(|rank| rank > 0))
+            .expect("a tall tree");
+        (mmr, tree)
+    }
+
+    fn empty() -> [Option<Step<u64>>; 32] {
+        from_fn(|_| None)
     }
 }

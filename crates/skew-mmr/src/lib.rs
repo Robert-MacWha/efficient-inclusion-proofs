@@ -1,7 +1,9 @@
+#[cfg(feature = "r1cs")]
+pub mod gadget;
 pub mod hasher;
 pub mod proof;
 
-use std::marker::PhantomData;
+use std::{array::from_fn, marker::PhantomData};
 
 use hasher::Hasher;
 use proof::{Proof, Step};
@@ -30,7 +32,7 @@ struct Node<E: Clone> {
 impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     pub fn new() -> Self {
         Self {
-            stack: std::array::from_fn(|_| None),
+            stack: from_fn(|_| None),
             depth: 0,
             len: 0,
             hasher: PhantomData,
@@ -52,23 +54,43 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     }
 
     /// Prove the element at `index`, counted in insertion order.
-    pub fn prove(&self, index: usize) -> Proof<E, H> {
+    pub fn prove(&self, index: usize) -> Proof<MAX_DEPTH, E, H> {
         assert!(index < self.len, "index out of range");
 
         let (tree, offset) = self.locate(self.len - 1 - index);
-        let mut path = Vec::new();
-        let children = self.node(tree).walk(offset, &mut path);
-        path.reverse();
+        let mut path = from_fn(|_| None);
+        let (children, _) = self.node(tree).walk(offset, &mut path);
 
         Proof::new(tree, children, path)
     }
 
-    pub fn roots(&self) -> Vec<E> {
-        (0..self.depth).map(|i| self.node(i).root.clone()).collect()
+    /// Roots of the trees, closest to the top of the stack last. Entries above `depth` are `None`.
+    pub fn roots(&self) -> [Option<E>; MAX_DEPTH] {
+        from_fn(|i| (i < self.depth).then(|| self.node(i).root.clone()))
     }
 
-    pub fn ranks(&self) -> Vec<u32> {
-        (0..self.depth).map(|i| self.node(i).rank).collect()
+    /// Ranks of the trees, paired with [`Self::roots`].
+    pub fn ranks(&self) -> [Option<u32>; MAX_DEPTH] {
+        from_fn(|i| (i < self.depth).then(|| self.node(i).rank))
+    }
+
+    /// The frontier packed little-endian into the `state` word of `SkewMmr.sol`:
+    ///  - `0..MAX_DEPTH`       - `rank`s
+    ///  - `MAX_DEPTH`          - `depth`
+    ///  - `MAX_DEPTH + 1..+5`  - `count`
+    ///  - `MAX_DEPTH + 5`      - a sentinel, so that a live accumulator is never zero
+    pub fn state(&self) -> [u8; 32] {
+        const { assert!(MAX_DEPTH + 5 < 32, "the state outgrows a word") }
+
+        let mut state = [0u8; 32];
+        for (tree, rank) in state.iter_mut().enumerate().take(self.depth) {
+            *rank = self.node(tree).rank as u8;
+        }
+
+        state[MAX_DEPTH] = self.depth as u8;
+        state[MAX_DEPTH + 1..MAX_DEPTH + 5].copy_from_slice(&(self.len as u32).to_le_bytes());
+        state[MAX_DEPTH + 5] = 1;
+        state
     }
 
     pub fn len(&self) -> usize {
@@ -142,14 +164,16 @@ impl<E: Clone> Node<E> {
         }
     }
 
-    /// Push the ancestors of the node at `offset`, root first, and return that node's
-    /// children. Offset 0 is this node, then the left subtree, then the right.
-    fn walk(&self, offset: usize, path: &mut Vec<Step<E>>) -> Option<(E, E)> {
+    /// Write the ancestors of the node at `offset` into `path`, closest first, and return that
+    /// node's children alongside the number of ancestors written. Offset 0 is this node, then
+    /// the left subtree, then the right.
+    fn walk(&self, offset: usize, path: &mut [Option<Step<E>>]) -> (Option<(E, E)>, usize) {
         if offset == 0 {
-            return self
+            let children = self
                 .children
                 .as_ref()
                 .map(|children| (children.0.root.clone(), children.1.root.clone()));
+            return (children, 0);
         }
 
         let children = self.children.as_ref().expect("a leaf holds only offset 0");
@@ -160,7 +184,8 @@ impl<E: Clone> Node<E> {
             false => (&children.0, offset - 1),
         };
 
-        path.push(Step {
+        let (proven, len) = next.walk(offset, path);
+        path[len] = Some(Step {
             element: self.element.clone(),
             sibling: match right {
                 true => children.0.root.clone(),
@@ -168,7 +193,7 @@ impl<E: Clone> Node<E> {
             },
             right,
         });
-        next.walk(offset, path)
+        (proven, len + 1)
     }
 
     fn size(&self) -> usize {
@@ -178,15 +203,33 @@ impl<E: Clone> Node<E> {
 
 #[cfg(test)]
 pub mod testing {
+    #[cfg(feature = "r1cs")]
+    use ark_bn254::Fr;
+
     use super::SkewMmr;
+    #[cfg(feature = "r1cs")]
+    use crate::hasher::MockHasher;
     use crate::hasher::StdHasher;
 
+    pub const MAX_DEPTH: usize = 8;
+
     pub type Mmr = SkewMmr<32, u64, StdHasher>;
+    #[cfg(feature = "r1cs")]
+    pub type FieldMmr = SkewMmr<MAX_DEPTH, Fr, MockHasher>;
 
     pub fn filled(n: u64) -> Mmr {
         let mut mmr = Mmr::new();
         for i in 0..n {
             mmr.append(i);
+        }
+        mmr
+    }
+
+    #[cfg(feature = "r1cs")]
+    pub fn field_filled(n: u64) -> FieldMmr {
+        let mut mmr = FieldMmr::new();
+        for i in 0..n {
+            mmr.append(Fr::from(i));
         }
         mmr
     }
@@ -203,7 +246,7 @@ mod tests {
         for i in 0..1000 {
             mmr.append(i);
 
-            let ranks = mmr.ranks();
+            let ranks: Vec<u32> = mmr.ranks().into_iter().flatten().collect();
             for pair in ranks.windows(2).take(ranks.len().saturating_sub(2)) {
                 assert!(pair[0] > pair[1], "{ranks:?}");
             }
@@ -219,7 +262,12 @@ mod tests {
         for i in 0..1000 {
             mmr.append(i);
 
-            let covered: usize = mmr.ranks().iter().map(|&rank| (1 << (rank + 1)) - 1).sum();
+            let covered: usize = mmr
+                .ranks()
+                .into_iter()
+                .flatten()
+                .map(|rank| (1 << (rank + 1)) - 1)
+                .sum();
             assert_eq!(covered, mmr.len());
         }
     }
