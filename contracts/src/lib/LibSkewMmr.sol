@@ -1,34 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-/// @title Skew-binary MMR
-/// @notice Append-only set commitment with worst-case O(1) appends.
-contract SkewMmr {
+library LibSkewMmr {
+    /// Maximum number of trees in the frontier.
     uint256 public constant MAX_DEPTH = 26;
 
     /// @dev Initial value for the tree folding chain.
     bytes32 internal constant IV = bytes32(0);
 
-    /// @dev The frontier: tree roots, smallest-ranked last. Entries above `depth` are undefined.
-    bytes32[MAX_DEPTH] public roots;
+    struct State {
+        /// @dev The frontier: tree roots, smallest-ranked last. Entries above `depth` are undefined.
+        bytes32[MAX_DEPTH] roots;
 
-    /// @dev 0..25  - `rank`s
-    ///      26     - `depth`
-    ///      27..30 - `count`
-    ///      31     - unused, set at construction so the slot is never zero
-    uint256 public state;
+        /// @dev 0..25  - `rank`s
+        ///      26     - `depth`
+        ///      27..30 - `count`
+        ///      31     - unused, set at construction so the slot is never zero
+        uint256 state;
 
-    /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
-    bytes32[MAX_DEPTH] private chains;
+        /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
+        bytes32[MAX_DEPTH] chains;
+    }
 
     error TooDeep();
 
     /// @dev Warms up storage with non-zero values to avoid cold SSTOREs.
-    constructor() {
-        state = 1 << 248;
+    function prewarm(State storage self) internal {
+        self.state = 1 << 248;
         for (uint256 i = 0; i < MAX_DEPTH; ++i) {
-            roots[i] = bytes32(uint256(1));
-            chains[i] = bytes32(uint256(1));
+            self.roots[i] = bytes32(uint256(1));
+            self.chains[i] = bytes32(uint256(1));
         }
     }
 
@@ -40,8 +41,8 @@ contract SkewMmr {
     ///      2. Otherwise, append the new element as a tree of rank 0.
     ///
     ///      Either branch writes `roots[tree]`, and `chains[tree - 1]` is stable across it.
-    function append(bytes32 element) public virtual returns (bytes32 top) {
-        uint256 s = state;
+    function append(State storage self, bytes32 element) internal returns (bytes32 top) {
+        uint256 s = self.state;
         uint256 d = _depth(s);
         uint256 tree;
         uint256 rank;
@@ -49,8 +50,8 @@ contract SkewMmr {
 
         if (d >= 2 && _rank(s, d - 1) == _rank(s, d - 2)) {
             //? poseidon2_3(a, b, c) = ~20k gas
-            root = keccak256(abi.encode(element, roots[d - 1], roots[d - 2]));
-            roots[d - 2] = root;
+            root = keccak256(abi.encode(element, self.roots[d - 1], self.roots[d - 2]));
+            self.roots[d - 2] = root;
 
             tree = d - 2;
             rank = _rank(s, d - 1) + 1;
@@ -60,31 +61,31 @@ contract SkewMmr {
             if (d == MAX_DEPTH) revert TooDeep();
 
             root = element;
-            roots[d] = root;
+            self.roots[d] = root;
 
             tree = d;
             rank = 0;
             d += 1;
         }
 
-        top = _link(tree >= 1 ? chains[tree - 1] : IV, root);
-        chains[tree] = top;
+        top = _link(tree >= 1 ? self.chains[tree - 1] : IV, root);
+        self.chains[tree] = top;
 
         s = _setRank(s, tree, rank);
         s = _setDepth(s, d);
-        state = _incrementCount(s);
+        self.state = _incrementCount(s);
     }
 
-    function ranks(uint256 tree) external view returns (uint8) {
-        return uint8(_rank(state, tree));
+    function ranks(State storage self, uint256 tree) internal view returns (uint8) {
+        return uint8(_rank(self.state, tree));
     }
 
-    function depth() external view returns (uint256) {
-        return _depth(state);
+    function depth(State storage self) internal view returns (uint256) {
+        return _depth(self.state);
     }
 
-    function count() external view returns (uint256) {
-        return _count(state);
+    function count(State storage self) internal view returns (uint256) {
+        return _count(self.state);
     }
 
     function _link(bytes32 prev, bytes32 root) internal pure returns (bytes32 chain) {

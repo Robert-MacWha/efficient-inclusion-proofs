@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {SkewMmr} from "./SkewMmr.sol";
+import {LibSkewMmrWithHistory} from "./lib/LibSkewMmrWithHistory.sol";
 
 /// @title Skew-MMR frontier verifier
 /// @notice Commits to the frontier on every append so a caller can pass it in calldata
 ///         and have it checked against a single storage word.
-contract SkewMmrVerifier is SkewMmr {
+contract SkewMmrVerifier {
+    using LibSkewMmrWithHistory for LibSkewMmrWithHistory.State;
+
     uint256 public constant HISTORY_SIZE = 64;
+
+    LibSkewMmrWithHistory.State private mmr;
 
     /// @dev `history[count % HISTORY_SIZE]` commits to the frontier at `count`.
     bytes32[HISTORY_SIZE] public history;
@@ -17,35 +21,38 @@ contract SkewMmrVerifier is SkewMmr {
 
     /// @dev Warms up storage with non-zero values to avoid cold SSTOREs.
     constructor() {
-        for (uint256 i = 0; i < HISTORY_SIZE; ++i) {
-            history[i] = bytes32(uint256(1));
-        }
+        mmr.prewarm();
     }
 
-    function append(bytes32 element) public override returns (bytes32 top) {
-        top = super.append(element);
-
-        uint256 s = state;
-        history[_count(s) % HISTORY_SIZE] = _commit(top, s);
+    function append(bytes32 element) public {
+        mmr.append(element);
     }
 
-    /// @notice Reverts unless `frontier` and `histState` were the frontier and state this MMR
-    ///         held at `_count(histState)`.
     function verifyFrontier(uint256 histState, bytes32[] calldata frontier) public view {
-        if (frontier.length != _depth(histState)) revert BadFrontier();
-
-        bytes32 chain = SkewMmr.IV;
-        for (uint256 i = 0; i < frontier.length; ++i) {
-            chain = _link(chain, frontier[i]);
-        }
-
-        if (history[_count(histState) % HISTORY_SIZE] != _commit(chain, histState)) {
-            revert UnknownFrontier();
-        }
+        mmr.verifyFrontier(histState, frontier);
     }
 
-    /// @dev Binds the frontier to the state it was reached at.
-    function _commit(bytes32 top, uint256 s) private pure returns (bytes32) {
-        return _link(top, bytes32(s));
+    function MAX_DEPTH() external pure returns (uint256) {
+        return LibSkewMmrWithHistory.MAX_DEPTH();
+    }
+
+    function state() external view returns (uint256) {
+        return mmr.mmr.state;
+    }
+
+    function ranks(uint256 tree) external view returns (uint8) {
+        return mmr.ranks(tree);
+    }
+
+    function roots(uint256 tree) external view returns (bytes32) {
+        return mmr.roots(tree);
+    }
+
+    function depth() external view returns (uint256) {
+        return mmr.depth();
+    }
+
+    function count() external view returns (uint256) {
+        return mmr.count();
     }
 }
