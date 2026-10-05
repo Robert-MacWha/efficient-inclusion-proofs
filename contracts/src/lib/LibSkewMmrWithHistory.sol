@@ -56,24 +56,4 @@ library LibSkewMmrWithHistory {
             revert UnknownFrontier();
         }
     }
-
-    function MAX_DEPTH() internal pure returns (uint256) {
-        return LibSkewMmr.MAX_DEPTH;
-    }
-
-    function ranks(State storage self, uint256 tree) internal view returns (uint8) {
-        return self.mmr.ranks(tree);
-    }
-
-    function roots(State storage self, uint256 tree) internal view returns (bytes32) {
-        return self.mmr.roots[tree];
-    }
-
-    function depth(State storage self) internal view returns (uint256) {
-        return self.mmr.depth();
-    }
-
-    function count(State storage self) internal view returns (uint256) {
-        return self.mmr.count();
-    }
 }
