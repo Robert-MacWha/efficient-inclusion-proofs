@@ -22,17 +22,20 @@ pub struct StateVar<const MAX_DEPTH: usize, F: PrimeField> {
 
 impl<const MAX_DEPTH: usize, F: PrimeField> StateVar<MAX_DEPTH, F> {
     /// The packed word.
+    #[tracing::instrument(target = "r1cs", skip_all)]
     pub fn word(&self) -> &FpVar<F> {
         &self.word
     }
 
     /// The number of live trees.
+    #[tracing::instrument(target = "r1cs", skip_all)]
     pub fn depth(&self) -> &FpVar<F> {
         &self.depth
     }
 
     /// The rank of `tree`, enforcing that it sits below [`Self::depth`]. Where the native
     /// [`State::rank`] would return `None`, this leaves the system unsatisfiable.
+    #[tracing::instrument(target = "r1cs", skip_all)]
     pub fn rank(&self, tree: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
         // A tree at or above `depth` is padding, which reads as rank 0 and would match an
         // empty path.
@@ -71,7 +74,6 @@ impl<const MAX_DEPTH: usize, F: PrimeField> AllocVar<State<MAX_DEPTH>, F>
 }
 
 /// Reads a packed word as a field element, or `None` when `F` is too small to hold it.
-/// Reducing it instead would leave a state that no accumulator ever produced.
 fn to_field<F: PrimeField>(bytes: &[u8; 32]) -> Option<F> {
     let field = F::from_le_bytes_mod_order(bytes);
     let reduced = field.into_bigint().to_bytes_le();
@@ -84,6 +86,7 @@ fn to_field<F: PrimeField>(bytes: &[u8; 32]) -> Option<F> {
 }
 
 /// Reads the `rank`s and `depth` from a word packed by [`State`].
+#[tracing::instrument(target = "r1cs", skip_all)]
 fn unpack<const MAX_DEPTH: usize, F: PrimeField>(
     word: &FpVar<F>,
 ) -> Result<([FpVar<F>; MAX_DEPTH], FpVar<F>), SynthesisError> {

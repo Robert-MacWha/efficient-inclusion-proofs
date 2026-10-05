@@ -51,6 +51,7 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
     /// Verifies the MMR inclusion proof.
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
+    #[tracing::instrument(target = "r1cs", skip_all)]
     pub fn verify(&self) -> Result<(), SynthesisError> {
         // `rank` enforces that the tree is live, so the root selected below is never padding.
         let rank = self.state.rank(&self.tree)?;
@@ -81,6 +82,7 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
 }
 impl<F: PrimeField> StepVar<F> {
     /// Folds `current` into its parent.
+    #[tracing::instrument(target = "r1cs", skip_all)]
     fn fold<H: HasherGadget<F>>(&self, current: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
         let left = self.right.select(&self.sibling, current)?;
         let right = self.right.select(current, &self.sibling)?;
