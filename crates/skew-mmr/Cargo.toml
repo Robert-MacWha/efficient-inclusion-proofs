@@ -5,12 +5,13 @@ edition = "2024"
 
 [features]
 default = ["r1cs"]
-r1cs = ["dep:ark-ff", "dep:ark-r1cs-std", "dep:ark-relations"]
+r1cs = ["dep:ark-ff", "dep:ark-r1cs-std", "dep:ark-relations", "dep:tracing"]
 
 [dependencies]
 ark-ff = { version = "0.6", optional = true }
 ark-r1cs-std = { version = "0.6", optional = true }
 ark-relations = { version = "0.6", optional = true }
+tracing = { version = "0.1.44", optional = true }
 
 [dev-dependencies]
 ark-bn254 = "0.6"

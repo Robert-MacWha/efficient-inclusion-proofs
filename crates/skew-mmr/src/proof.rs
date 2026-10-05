@@ -7,9 +7,11 @@ use crate::hasher::Hasher;
 pub struct Proof<const MAX_DEPTH: usize, E, H: Hasher<E>> {
     /// Index into `roots` and `ranks`.
     pub tree: usize,
-    /// The children of the proven node. None if it is a leaf.
+    /// The children of the proven node. Ignored when it is a leaf.
     pub children: Option<(E, E)>,
-    /// Ancestors of the proven node, closest first.
+    /// Ancestors of the proven node held by `path`.
+    pub path_len: usize,
+    /// Ancestors of the proven node, closest first. Steps from `path_len` on are ignored.
     pub path: [Option<Step<E>>; MAX_DEPTH],
     pub hasher: PhantomData<H>,
 }
@@ -25,22 +27,23 @@ pub struct Step<E> {
 }
 
 impl<const MAX_DEPTH: usize, E, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
-    pub fn new(tree: usize, children: Option<(E, E)>, path: [Option<Step<E>>; MAX_DEPTH]) -> Self {
+    pub fn new(
+        tree: usize,
+        children: Option<(E, E)>,
+        path_len: usize,
+        path: [Option<Step<E>>; MAX_DEPTH],
+    ) -> Self {
         Self {
             tree,
             children,
+            path_len,
             path,
             hasher: PhantomData,
         }
     }
-
-    /// Ancestors held by `path`. The path ends at the first gap.
-    pub fn path_len(&self) -> usize {
-        self.path.iter().map_while(Option::as_ref).count()
-    }
 }
 
-impl<const MAX_DEPTH: usize, E: Clone + PartialEq, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
     /// Verifies that `element` is held by the accumulator described by `roots` and `ranks`.
     ///
     /// `roots` and `ranks` must come from the same frontier, and must be authenticated by
@@ -55,26 +58,34 @@ impl<const MAX_DEPTH: usize, E: Clone + PartialEq, H: Hasher<E>> Proof<MAX_DEPTH
         else {
             return false;
         };
-        let (len, rank) = (self.path_len(), *rank as usize);
-        if len > rank {
+        let Some(path) = self.path.get(..self.path_len) else {
+            return false;
+        };
+        if self.path_len > *rank as usize {
             return false;
         }
 
         // One step per level between the proven node and the tree root, so a node reached by
         // `L` steps in a tree of rank `r` has rank `r - L`, and is a leaf exactly when `L == r`.
-        let mut current = match (&self.children, len == rank) {
-            (None, true) => element.clone(),
-            (Some((left, right)), false) => H::hash(element, left, right),
-            _ => return false,
+        let (left, right) = self.children.clone().unwrap_or_default();
+        let mut current = match self.path_len == *rank as usize {
+            true => element.clone(),
+            false => H::hash(element, &left, &right),
         };
 
-        for step in self.path.iter().map_while(Option::as_ref) {
-            current = match step.right {
-                true => H::hash(&step.element, &step.sibling, &current),
-                false => H::hash(&step.element, &current, &step.sibling),
-            };
+        for step in path {
+            current = step.clone().unwrap_or_default().fold::<H>(current);
         }
         current == *root
+    }
+}
+
+impl<E> Step<E> {
+    fn fold<H: Hasher<E>>(&self, current: E) -> E {
+        match self.right {
+            true => H::hash(&self.element, &self.sibling, &current),
+            false => H::hash(&self.element, &current, &self.sibling),
+        }
     }
 }
 
@@ -83,10 +94,10 @@ mod tests {
     use std::array::from_fn;
 
     use super::*;
-    use crate::hasher::StdHasher;
-    use crate::testing::{Mmr, filled};
+    use crate::hasher::MockHasher;
+    use crate::testing::{MAX_DEPTH, Mmr, filled};
 
-    type SampleProof = Proof<32, u64, StdHasher>;
+    type SampleProof = Proof<MAX_DEPTH, u64, MockHasher>;
 
     #[test]
     fn proves_every_element_at_every_size() {
@@ -150,7 +161,7 @@ mod tests {
     fn rejects_a_tree_root_claimed_as_a_leaf() {
         let (mmr, tree) = tall_tree();
 
-        let forged = SampleProof::new(tree, None, empty());
+        let forged = SampleProof::new(tree, None, 0, empty());
         let root = mmr.roots()[tree].expect("a live tree");
         assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &root));
     }
@@ -159,7 +170,7 @@ mod tests {
     fn rejects_a_leaf_claimed_as_a_tree_root() {
         let (mmr, tree) = tall_tree();
 
-        let forged = SampleProof::new(tree, Some((0, 1)), empty());
+        let forged = SampleProof::new(tree, Some((0, 1)), 0, empty());
         assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &0));
     }
 
@@ -169,13 +180,29 @@ mod tests {
         let step = proof.path[0].clone();
         let path = from_fn(|_| step.clone());
 
-        assert!(!SampleProof { path, ..proof }.verify(&mmr.roots(), &mmr.ranks(), &40));
+        let forged = SampleProof {
+            path,
+            path_len: MAX_DEPTH,
+            ..proof
+        };
+        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &40));
     }
 
     #[test]
-    fn ignores_steps_past_a_gap() {
+    fn rejects_a_length_beyond_the_path() {
+        let (mmr, proof) = sample(40);
+        let forged = SampleProof {
+            path_len: MAX_DEPTH + 1,
+            ..proof
+        };
+
+        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &40));
+    }
+
+    #[test]
+    fn ignores_steps_past_the_length() {
         let (mmr, mut proof) = sample(40);
-        let stranded = proof.path_len() + 1;
+        let stranded = proof.path_len + 1;
         proof.path[stranded] = proof.path[0].clone();
 
         assert!(proof.verify(&mmr.roots(), &mmr.ranks(), &40));
@@ -197,7 +224,7 @@ mod tests {
         (mmr, tree)
     }
 
-    fn empty() -> [Option<Step<u64>>; 32] {
+    fn empty() -> [Option<Step<u64>>; MAX_DEPTH] {
         from_fn(|_| None)
     }
 }

@@ -1,5 +1,5 @@
 #[cfg(feature = "r1cs")]
-pub mod gadget;
+pub mod constraints;
 pub mod hasher;
 pub mod proof;
 
@@ -59,9 +59,9 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
 
         let (tree, offset) = self.locate(self.len - 1 - index);
         let mut path = from_fn(|_| None);
-        let (children, _) = self.node(tree).walk(offset, &mut path);
+        let (children, path_len) = self.node(tree).walk(offset, &mut path);
 
-        Proof::new(tree, children, path)
+        Proof::new(tree, children, path_len, path)
     }
 
     /// Roots of the trees, closest to the top of the stack last. Entries above `depth` are `None`.
@@ -203,33 +203,20 @@ impl<E: Clone> Node<E> {
 
 #[cfg(test)]
 pub mod testing {
-    #[cfg(feature = "r1cs")]
-    use ark_bn254::Fr;
-
-    use super::SkewMmr;
-    #[cfg(feature = "r1cs")]
+    use super::{Hasher, SkewMmr};
     use crate::hasher::MockHasher;
-    use crate::hasher::StdHasher;
 
-    pub const MAX_DEPTH: usize = 8;
+    pub const MAX_DEPTH: usize = 26;
 
-    pub type Mmr = SkewMmr<32, u64, StdHasher>;
-    #[cfg(feature = "r1cs")]
-    pub type FieldMmr = SkewMmr<MAX_DEPTH, Fr, MockHasher>;
+    pub type Mmr = SkewMmr<MAX_DEPTH, u64, MockHasher>;
 
-    pub fn filled(n: u64) -> Mmr {
-        let mut mmr = Mmr::new();
+    /// An accumulator holding `0..n`, so the element at any index equals that index.
+    pub fn filled<const DEPTH: usize, E: Clone + From<u64>, H: Hasher<E>>(
+        n: u64,
+    ) -> SkewMmr<DEPTH, E, H> {
+        let mut mmr = SkewMmr::new();
         for i in 0..n {
-            mmr.append(i);
-        }
-        mmr
-    }
-
-    #[cfg(feature = "r1cs")]
-    pub fn field_filled(n: u64) -> FieldMmr {
-        let mut mmr = FieldMmr::new();
-        for i in 0..n {
-            mmr.append(Fr::from(i));
+            mmr.append(E::from(i));
         }
         mmr
     }
@@ -275,7 +262,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "stack is full")]
     fn rejects_overflowing_max_depth() {
-        let mut mmr: SkewMmr<3, u64, hasher::StdHasher> = SkewMmr::new();
+        let mut mmr: SkewMmr<3, u64, hasher::MockHasher> = SkewMmr::new();
         for i in 0..1000 {
             mmr.append(i);
         }

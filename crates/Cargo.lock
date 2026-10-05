@@ -4100,6 +4100,7 @@ dependencies = [
  "ark-std 0.6.0",
  "criterion",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
