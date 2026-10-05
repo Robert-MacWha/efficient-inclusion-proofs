@@ -11,7 +11,7 @@ use measurement::HashCount;
 
 const SIZES: [usize; 4] = [1 << 8, 1 << 12, 1 << 16, 1 << 20];
 
-type Mmr = SkewMmr<32, u64, CountingHasher>;
+type Mmr = SkewMmr<26, u64, CountingHasher>;
 
 fn append(c: &mut Criterion<HashCount>) {
     let mut group = c.benchmark_group("append");
@@ -31,11 +31,9 @@ fn verify(c: &mut Criterion<HashCount>) {
     group.sample_size(10);
 
     for n in SIZES {
-        let mmr = filled(n);
-        let (roots, ranks) = (mmr.roots(), mmr.ranks());
-        let proof = mmr.prove(0);
+        let proof = filled(n).prove(0);
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
-            b.iter(|| proof.verify(&roots, &ranks, black_box(&0)));
+            b.iter(|| black_box(&proof).verify());
         });
     }
 }

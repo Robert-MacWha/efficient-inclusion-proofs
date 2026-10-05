@@ -19,6 +19,12 @@ use crate::proof::{Proof, Step};
 /// An inclusion proof for an element in a [`crate::SkewMmr`], padded to `MAX_DEPTH`.
 #[derive(Debug, Clone)]
 pub struct ProofVar<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> {
+    /// Roots of the frontier's trees. Entries above `depth` are padding.
+    pub roots: [FpVar<F>; MAX_DEPTH],
+    /// The frontier packed by [`crate::SkewMmr::state`].
+    pub state: FpVar<F>,
+    /// The proven element.
+    pub element: FpVar<F>,
     /// Index into `roots` and the rank bytes of `state`.
     pub tree: FpVar<F>,
     /// The children of the proven node. Ignored when it is a leaf.
@@ -43,13 +49,8 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
     /// Verifies the MMR inclusion proof.
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
-    pub fn verify(
-        &self,
-        roots: &[FpVar<F>; MAX_DEPTH],
-        state: &FpVar<F>,
-        element: &FpVar<F>,
-    ) -> Result<(), SynthesisError> {
-        let (ranks, depth) = unpack::<MAX_DEPTH, F>(state)?;
+    pub fn verify(&self) -> Result<(), SynthesisError> {
+        let (ranks, depth) = unpack::<MAX_DEPTH, F>(&self.state)?;
 
         // Select the root and rank of the tree that the proven node belongs to. A tree at or
         // above `depth` is padding, which reads as root 0 of rank 0 and would match an empty path.
@@ -59,7 +60,7 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
         let mut live = Boolean::FALSE;
         for i in 0..MAX_DEPTH {
             let hit = self.tree.is_eq(&FpVar::constant(F::from(i as u64)))?;
-            root = hit.select(&roots[i], &root)?;
+            root = hit.select(&self.roots[i], &root)?;
             rank = hit.select(&ranks[i], &rank)?;
             live |= &hit & &populated[i];
         }
@@ -75,8 +76,8 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
         // One step per level between the proven node and the tree root, so a node reached by
         // `L` steps in a tree of rank `r` has rank `r - L`, and is a leaf exactly when `L == r`.
         let is_leaf = self.path_len.is_eq(&rank)?;
-        let node = H::hash(element, &self.children[0], &self.children[1])?;
-        let mut current = is_leaf.select(element, &node)?;
+        let node = H::hash(&self.element, &self.children[0], &self.children[1])?;
+        let mut current = is_leaf.select(&self.element, &node)?;
         for (step, active) in self.path.iter().zip(&active) {
             current = active.select(&step.fold::<H>(&current)?, &current)?;
         }
@@ -112,6 +113,15 @@ where
         let (left, right) = proof.children.unwrap_or_default();
 
         Ok(Self {
+            roots: try_from_fn(|i| {
+                FpVar::new_variable(cs.clone(), || Ok(proof.roots[i].unwrap_or_default()), mode)
+            })?,
+            state: FpVar::new_variable(
+                cs.clone(),
+                || Ok(F::from_le_bytes_mod_order(&proof.state)),
+                mode,
+            )?,
+            element: FpVar::new_variable(cs.clone(), || Ok(proof.element), mode)?,
             tree: FpVar::new_variable(cs.clone(), || Ok(F::from(proof.tree as u64)), mode)?,
             children: [
                 FpVar::new_variable(cs.clone(), || Ok(left), mode)?,
@@ -215,12 +225,11 @@ mod tests {
             let n = rng.gen_range(1..100u64);
             let index = rng.gen_range(0..n);
 
-            let mmr = filled(n);
+            let mmr: Mmr = filled(n);
             let proof = mmr.prove(index as usize);
-            let element = Fr::from(index);
 
-            assert!(check(&mmr, &proof, element), "element {index} of {n}");
-            assert_eq!(check(&mmr, &proof, element), native(&mmr, &proof, element));
+            assert!(check(&proof), "element {index} of {n}");
+            assert_eq!(check(&proof), native(&proof));
         }
     }
 
@@ -231,9 +240,8 @@ mod tests {
             let n = rng.gen_range(1..100u64);
             let index = rng.gen_range(0..n);
 
-            let mmr = filled(n);
+            let mmr: Mmr = filled(n);
             let mut proof = mmr.prove(index as usize);
-            let mut element = Fr::from(index);
 
             let slot = rng.gen_range(0..MAX_DEPTH);
             let noise = Fr::from(rng.r#gen::<u64>());
@@ -255,12 +263,12 @@ mod tests {
                     }
                 }
                 6 => proof.children = proof.children.map(|(left, right)| (right, left)),
-                _ => element = noise,
+                _ => proof.element = noise,
             }
 
             assert_eq!(
-                check(&mmr, &proof, element),
-                native(&mmr, &proof, element),
+                check(&proof),
+                native(&proof),
                 "tampered proof of element {index} of {n}"
             );
         }
@@ -298,26 +306,18 @@ mod tests {
         FpVar::new_input(cs.clone(), || Ok(value)).unwrap()
     }
 
-    fn check(mmr: &Mmr, proof: &SampleProof, element: Fr) -> bool {
-        circuit(mmr, proof, element).is_satisfied().unwrap()
+    fn check(proof: &SampleProof) -> bool {
+        circuit(proof).is_satisfied().unwrap()
     }
 
-    fn native(mmr: &Mmr, proof: &SampleProof, element: Fr) -> bool {
-        proof.verify(&mmr.roots(), &mmr.ranks(), &element)
+    fn native(proof: &SampleProof) -> bool {
+        proof.verify()
     }
 
-    fn circuit(mmr: &Mmr, proof: &SampleProof, element: Fr) -> ConstraintSystemRef<Fr> {
+    fn circuit(proof: &SampleProof) -> ConstraintSystemRef<Fr> {
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let frontier = mmr.roots();
-
-        let roots =
-            try_from_fn(|i| FpVar::new_input(cs.clone(), || Ok(frontier[i].unwrap_or_default())))
-                .unwrap();
-        let state = input(&cs, Fr::from_le_bytes_mod_order(&mmr.state()));
-        let element = FpVar::new_witness(cs.clone(), || Ok(element)).unwrap();
         let proof = ProofVar::new_witness(cs.clone(), || Ok(proof)).unwrap();
-
-        proof.verify(&roots, &state, &element).unwrap();
+        proof.verify().unwrap();
         cs
     }
 }

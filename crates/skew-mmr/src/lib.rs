@@ -59,9 +59,21 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
 
         let (tree, offset) = self.locate(self.len - 1 - index);
         let mut path = from_fn(|_| None);
-        let (children, path_len) = self.node(tree).walk(offset, &mut path);
+        let (proven, path_len) = self.node(tree).walk(offset, &mut path);
+        let children = proven
+            .children
+            .as_ref()
+            .map(|children| (children.0.root.clone(), children.1.root.clone()));
 
-        Proof::new(tree, children, path_len, path)
+        Proof::new(
+            self.roots(),
+            self.state(),
+            proven.element.clone(),
+            tree,
+            children,
+            path_len,
+            path,
+        )
     }
 
     /// Roots of the trees, closest to the top of the stack last. Entries above `depth` are `None`.
@@ -165,15 +177,11 @@ impl<E: Clone> Node<E> {
     }
 
     /// Write the ancestors of the node at `offset` into `path`, closest first, and return that
-    /// node's children alongside the number of ancestors written. Offset 0 is this node, then
-    /// the left subtree, then the right.
-    fn walk(&self, offset: usize, path: &mut [Option<Step<E>>]) -> (Option<(E, E)>, usize) {
+    /// node alongside the number of ancestors written. Offset 0 is this node, then the left
+    /// subtree, then the right.
+    fn walk<'a>(&'a self, offset: usize, path: &mut [Option<Step<E>>]) -> (&'a Node<E>, usize) {
         if offset == 0 {
-            let children = self
-                .children
-                .as_ref()
-                .map(|children| (children.0.root.clone(), children.1.root.clone()));
-            return (children, 0);
+            return (self, 0);
         }
 
         let children = self.children.as_ref().expect("a leaf holds only offset 0");

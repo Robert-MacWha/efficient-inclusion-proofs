@@ -5,7 +5,13 @@ use crate::hasher::Hasher;
 /// An inclusion proof for an element in a [`crate::SkewMmr`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proof<const MAX_DEPTH: usize, E, H: Hasher<E>> {
-    /// Index into `roots` and `ranks`.
+    /// Roots of the frontier's trees. Entries above `depth` are `None`.
+    pub roots: [Option<E>; MAX_DEPTH],
+    /// The frontier packed by [`crate::SkewMmr::state`].
+    pub state: [u8; 32],
+    /// The proven element.
+    pub element: E,
+    /// Index into `roots` and the rank bytes of `state`.
     pub tree: usize,
     /// The children of the proven node. Ignored when it is a leaf.
     pub children: Option<(E, E)>,
@@ -28,12 +34,18 @@ pub struct Step<E> {
 
 impl<const MAX_DEPTH: usize, E, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
     pub fn new(
+        roots: [Option<E>; MAX_DEPTH],
+        state: [u8; 32],
+        element: E,
         tree: usize,
         children: Option<(E, E)>,
         path_len: usize,
         path: [Option<Step<E>>; MAX_DEPTH],
     ) -> Self {
         Self {
+            roots,
+            state,
+            element,
             tree,
             children,
             path_len,
@@ -44,33 +56,32 @@ impl<const MAX_DEPTH: usize, E, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
 }
 
 impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
-    /// Verifies that `element` is held by the accumulator described by `roots` and `ranks`.
+    /// Verifies that `element` is held by the accumulator described by `roots` and `state`.
     ///
-    /// `roots` and `ranks` must come from the same frontier, and must be authenticated by
-    /// the caller. Mixing frontiers lets a tree root pass as a leaf.
-    pub fn verify(
-        &self,
-        roots: &[Option<E>; MAX_DEPTH],
-        ranks: &[Option<u32>; MAX_DEPTH],
-        element: &E,
-    ) -> bool {
-        let (Some(Some(root)), Some(Some(rank))) = (roots.get(self.tree), ranks.get(self.tree))
-        else {
+    /// `roots` and `state` must come from the same frontier, and the caller must authenticate
+    /// them against the accumulator before trusting a `true`. Mixing frontiers lets a tree
+    /// root pass as a leaf.
+    pub fn verify(&self) -> bool {
+        let Some(Some(root)) = self.roots.get(self.tree) else {
             return false;
         };
+        if self.tree >= self.state[MAX_DEPTH] as usize {
+            return false;
+        }
+        let rank = self.state[self.tree] as usize;
         let Some(path) = self.path.get(..self.path_len) else {
             return false;
         };
-        if self.path_len > *rank as usize {
+        if self.path_len > rank {
             return false;
         }
 
         // One step per level between the proven node and the tree root, so a node reached by
         // `L` steps in a tree of rank `r` has rank `r - L`, and is a leaf exactly when `L == r`.
         let (left, right) = self.children.clone().unwrap_or_default();
-        let mut current = match self.path_len == *rank as usize {
-            true => element.clone(),
-            false => H::hash(element, &left, &right),
+        let mut current = match self.path_len == rank {
+            true => self.element.clone(),
+            false => H::hash(&self.element, &left, &right),
         };
 
         for step in path {
@@ -105,28 +116,35 @@ mod tests {
         for i in 0..200 {
             mmr.append(i);
 
-            let (roots, ranks) = (mmr.roots(), mmr.ranks());
             for j in 0..=i {
                 let proof = mmr.prove(j as usize);
-                assert!(
-                    proof.verify(&roots, &ranks, &j),
-                    "element {j} at len {}",
-                    i + 1
-                );
+                assert!(proof.verify(), "element {j} at len {}", i + 1);
             }
         }
     }
 
     #[test]
     fn rejects_another_member() {
-        let (mmr, proof) = sample(40);
-        assert!(!proof.verify(&mmr.roots(), &mmr.ranks(), &41));
+        let (_, proof) = sample(40);
+        assert!(
+            !SampleProof {
+                element: 41,
+                ..proof
+            }
+            .verify()
+        );
     }
 
     #[test]
     fn rejects_a_non_member() {
-        let (mmr, proof) = sample(40);
-        assert!(!proof.verify(&mmr.roots(), &mmr.ranks(), &1000));
+        let (_, proof) = sample(40);
+        assert!(
+            !SampleProof {
+                element: 1000,
+                ..proof
+            }
+            .verify()
+        );
     }
 
     #[test]
@@ -137,7 +155,14 @@ mod tests {
         other.append(1000);
         let forged = other.prove(0);
 
-        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &1000));
+        assert!(
+            !SampleProof {
+                roots: mmr.roots(),
+                state: mmr.state(),
+                ..forged
+            }
+            .verify()
+        );
     }
 
     #[test]
@@ -145,38 +170,38 @@ mod tests {
         let (mmr, proof) = sample(40);
         let tree = mmr.depth();
 
-        assert!(!SampleProof { tree, ..proof }.verify(&mmr.roots(), &mmr.ranks(), &40));
+        assert!(!SampleProof { tree, ..proof }.verify());
     }
 
     #[test]
     fn rejects_a_flipped_direction() {
-        let (mmr, mut proof) = sample(40);
+        let (_, mut proof) = sample(40);
         let step = proof.path[0].as_mut().expect("a populated step");
         step.right = !step.right;
 
-        assert!(!proof.verify(&mmr.roots(), &mmr.ranks(), &40));
+        assert!(!proof.verify());
     }
 
     #[test]
     fn rejects_a_tree_root_claimed_as_a_leaf() {
         let (mmr, tree) = tall_tree();
-
-        let forged = SampleProof::new(tree, None, 0, empty());
         let root = mmr.roots()[tree].expect("a live tree");
-        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &root));
+
+        let forged = SampleProof::new(mmr.roots(), mmr.state(), root, tree, None, 0, empty());
+        assert!(!forged.verify());
     }
 
     #[test]
     fn rejects_a_leaf_claimed_as_a_tree_root() {
         let (mmr, tree) = tall_tree();
 
-        let forged = SampleProof::new(tree, Some((0, 1)), 0, empty());
-        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &0));
+        let forged = SampleProof::new(mmr.roots(), mmr.state(), 0, tree, Some((0, 1)), 0, empty());
+        assert!(!forged.verify());
     }
 
     #[test]
     fn rejects_a_path_longer_than_the_tree() {
-        let (mmr, proof) = sample(40);
+        let (_, proof) = sample(40);
         let step = proof.path[0].clone();
         let path = from_fn(|_| step.clone());
 
@@ -185,27 +210,27 @@ mod tests {
             path_len: MAX_DEPTH,
             ..proof
         };
-        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &40));
+        assert!(!forged.verify());
     }
 
     #[test]
     fn rejects_a_length_beyond_the_path() {
-        let (mmr, proof) = sample(40);
+        let (_, proof) = sample(40);
         let forged = SampleProof {
             path_len: MAX_DEPTH + 1,
             ..proof
         };
 
-        assert!(!forged.verify(&mmr.roots(), &mmr.ranks(), &40));
+        assert!(!forged.verify());
     }
 
     #[test]
     fn ignores_steps_past_the_length() {
-        let (mmr, mut proof) = sample(40);
+        let (_, mut proof) = sample(40);
         let stranded = proof.path_len + 1;
         proof.path[stranded] = proof.path[0].clone();
 
-        assert!(proof.verify(&mmr.roots(), &mmr.ranks(), &40));
+        assert!(proof.verify());
     }
 
     fn sample(element: u64) -> (Mmr, SampleProof) {
