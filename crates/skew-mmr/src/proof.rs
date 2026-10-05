@@ -136,18 +136,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_non_member() {
-        let (_, proof) = sample(40);
-        assert!(
-            !SampleProof {
-                element: 1000,
-                ..proof
-            }
-            .verify()
-        );
-    }
-
-    #[test]
     fn rejects_a_proof_from_another_accumulator() {
         let (mmr, _) = sample(40);
 

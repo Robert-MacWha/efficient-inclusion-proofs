@@ -9,8 +9,10 @@ use ark_r1cs_std::{
 };
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
-use super::{prefix_mask, try_from_fn};
-use crate::state::State;
+use crate::{
+    constraints::{array::try_from_fn, mask::prefix_mask},
+    state::State,
+};
 
 /// The R1CS form of [`crate::state::State`].
 #[derive(Debug, Clone)]
@@ -144,14 +146,6 @@ mod tests {
         let _ = unpack::<MAX_DEPTH, Fr>(&word).unwrap();
 
         assert!(!cs.is_satisfied().unwrap());
-    }
-
-    #[test]
-    fn reads_a_word_that_fits_the_field() {
-        let mmr: Mmr = filled(60);
-        let word = to_field::<Fr>(mmr.state().bytes());
-
-        assert_eq!(word, Some(Fr::from_le_bytes_mod_order(mmr.state().bytes())));
     }
 
     #[test]

@@ -1,4 +1,6 @@
+pub mod array;
 pub mod hasher;
+pub mod mask;
 pub mod state;
 
 use std::borrow::Borrow;
@@ -13,10 +15,11 @@ use ark_r1cs_std::{
 };
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
-use self::hasher::HasherGadget;
-use self::state::StateVar;
-use crate::hasher::Hasher;
-use crate::proof::{Proof, Step};
+use crate::{
+    constraints::{array::try_from_fn, hasher::HasherGadget, mask::prefix_mask, state::StateVar},
+    hasher::Hasher,
+    proof::{Proof, Step},
+};
 
 /// An inclusion proof for an element in a [`crate::SkewMmr`], padded to `MAX_DEPTH`.
 #[derive(Debug, Clone)]
@@ -49,6 +52,9 @@ pub struct StepVar<F: PrimeField> {
 
 impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEPTH, F, H> {
     /// Verifies the MMR inclusion proof.
+    ///
+    /// `roots` and `state` are witnesses like the rest of the proof, so they must be bound
+    /// to authenticated public inputs in the circuit.
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
     #[tracing::instrument(target = "r1cs", skip_all)]
@@ -147,30 +153,6 @@ impl<F: PrimeField> AllocVar<Step<F>, F> for StepVar<F> {
             right: Boolean::new_variable(cs, || Ok(step.right), mode)?,
         })
     }
-}
-
-/// Expands `value` into the mask `i < value` over `0..N`, enforcing that it lands in `0..=N`.
-pub(crate) fn prefix_mask<const N: usize, F: PrimeField>(
-    value: &FpVar<F>,
-) -> Result<[Boolean<F>; N], SynthesisError> {
-    let mut reached = Boolean::FALSE;
-    let mask = try_from_fn(|i| {
-        reached |= &value.is_eq(&FpVar::constant(F::from(i as u64)))?;
-        Ok(!&reached)
-    })?;
-
-    let bounded = reached | &value.is_eq(&FpVar::constant(F::from(N as u64)))?;
-    bounded.enforce_equal(&Boolean::TRUE)?;
-
-    Ok(mask)
-}
-
-/// Builds an array from one fallible item per index.
-pub(crate) fn try_from_fn<T, const N: usize>(
-    f: impl FnMut(usize) -> Result<T, SynthesisError>,
-) -> Result<[T; N], SynthesisError> {
-    let items = (0..N).map(f).collect::<Result<Vec<_>, _>>()?;
-    Ok(items.try_into().ok().expect("N items"))
 }
 
 #[cfg(test)]
