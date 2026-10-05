@@ -25,7 +25,7 @@ contract SkewMmrVerifier {
     }
 
     function append(bytes32 element) public {
-        mmr.append(element);
+        mmr.append(element, _hash);
     }
 
     function verifyFrontier(uint256 histState, bytes32[] calldata frontier) public view {
@@ -54,5 +54,9 @@ contract SkewMmrVerifier {
 
     function count() external view returns (uint256) {
         return mmr.count();
+    }
+
+    function _hash(bytes32 a, bytes32 b, bytes32 c) internal pure returns (bytes32) {
+        return keccak256(abi.encode(a, b, c));
     }
 }

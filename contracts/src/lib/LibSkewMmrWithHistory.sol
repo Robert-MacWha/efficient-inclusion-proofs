@@ -28,9 +28,15 @@ library LibSkewMmrWithHistory {
     }
 
     /// @notice Append an element to the MMR and store the resulting frontier to history.
+    /// @dev See `LibSkewMmr.append` for more details.
+    ///
     /// @return top The chain folding every root of the resulting frontier.
-    function append(State storage self, bytes32 element) internal returns (bytes32 top) {
-        top = self.mmr.append(element);
+    function append(
+        State storage self,
+        bytes32 element,
+        function(bytes32, bytes32, bytes32) internal view returns (bytes32) hash
+    ) internal returns (bytes32 top) {
+        top = self.mmr.append(element, hash);
 
         uint256 s = self.mmr.state;
         self.history[LibSkewMmr._count(s) % HISTORY_SIZE] = LibSkewMmr._link(top, bytes32(s));

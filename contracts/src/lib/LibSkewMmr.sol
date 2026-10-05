@@ -36,12 +36,19 @@ library LibSkewMmr {
     /// @notice Append an element to the MMR.
     /// @return top The chain folding every root of the resulting frontier.
     ///
+    /// @param element The new elelment to append to the MMR.
+    /// @param hash Merges a new element with the two roots it subsumes into a new tree root.
+    ///
     /// @dev Maximum of 1 hash per append. Follows skew-binary carry rules:
     ///      1. If the two smallest trees have the same rank, merge them into a tree of rank+1.
     ///      2. Otherwise, append the new element as a tree of rank 0.
     ///
     ///      Either branch writes `roots[tree]`, and `chains[tree - 1]` is stable across it.
-    function append(State storage self, bytes32 element) internal returns (bytes32 top) {
+    function append(
+        State storage self,
+        bytes32 element,
+        function(bytes32, bytes32, bytes32) internal view returns (bytes32) hash
+    ) internal returns (bytes32 top) {
         uint256 s = self.state;
         uint256 d = _depth(s);
         uint256 tree;
@@ -49,8 +56,7 @@ library LibSkewMmr {
         bytes32 root;
 
         if (d >= 2 && _rank(s, d - 1) == _rank(s, d - 2)) {
-            //? poseidon2_3(a, b, c) = ~20k gas
-            root = keccak256(abi.encode(element, self.roots[d - 1], self.roots[d - 2]));
+            root = hash(element, self.roots[d - 1], self.roots[d - 2]);
             self.roots[d - 2] = root;
 
             tree = d - 2;
