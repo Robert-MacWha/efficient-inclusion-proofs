@@ -2,12 +2,13 @@ use std::borrow::Borrow;
 
 use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::{
+    GR1CSVar,
     alloc::{AllocVar, AllocationMode},
     boolean::Boolean,
     eq::EqGadget,
     fields::{FieldVar, fp::FpVar},
 };
-use ark_relations::gr1cs::{Namespace, SynthesisError};
+use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 
 use crate::{
     constraints::{array::try_from_fn, mask::prefix_mask},
@@ -15,6 +16,12 @@ use crate::{
 };
 
 /// The R1CS form of [`crate::state::State`].
+///
+/// TODO: Test whether `ranks` and `depth` are properly constrained with `word`.
+/// I think they are because they are derived from `word` in `new_variable` and the
+/// derivation happens in-circuit(?) using FpVar methods, but I'm not actually sure if
+/// work done in `new_variable` is enforced in circuit. If now, we should unpack in place
+/// within the functions and just hold `word` in the struct.
 #[derive(Debug, Clone)]
 pub struct StateVar<const MAX_DEPTH: usize, F: PrimeField> {
     word: FpVar<F>,
@@ -72,6 +79,31 @@ impl<const MAX_DEPTH: usize, F: PrimeField> AllocVar<State<MAX_DEPTH>, F>
         let (ranks, depth) = unpack::<MAX_DEPTH, F>(&word)?;
 
         Ok(Self { word, ranks, depth })
+    }
+}
+
+impl<const MAX_DEPTH: usize, F: PrimeField> EqGadget<F> for StateVar<MAX_DEPTH, F> {
+    #[tracing::instrument(target = "r1cs", skip(self, other))]
+    fn is_eq(&self, other: &Self) -> Result<Boolean<F>, SynthesisError> {
+        self.word.is_eq(&other.word)
+    }
+}
+
+impl<const MAX_DEPTH: usize, F: PrimeField> GR1CSVar<F> for StateVar<MAX_DEPTH, F> {
+    type Value = State<MAX_DEPTH>;
+
+    fn cs(&self) -> ConstraintSystemRef<F> {
+        self.word.cs()
+    }
+
+    fn value(&self) -> Result<Self::Value, SynthesisError> {
+        let word = self.word.value()?;
+        let bytes = word.into_bigint().to_bytes_le();
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| SynthesisError::Unsatisfiable)?;
+
+        State::try_from_bytes(bytes).ok_or(SynthesisError::Unsatisfiable)
     }
 }
 
