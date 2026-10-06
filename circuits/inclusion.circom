@@ -4,7 +4,7 @@ include "circomlib/circuits/comparators.circom";
 include "circomlib/circuits/multiplexer.circom";
 include "circomlib/circuits/mux1.circom";
 include "circomlib/circuits/switcher.circom";
-include "hasher.circom";
+include "circomlib/circuits/poseidon.circom";
 
 /// Verifies that `element` is held by the accumulator described by `roots` and `state`.
 ///
@@ -70,10 +70,10 @@ template SkewMmrInclusion(MAX_TREES) {
     isLeaf.in[0] <== pathLen;
     isLeaf.in[1] <== rank;
 
-    component node = Hash3();
-    node.element <== element;
-    node.left <== children[0];
-    node.right <== children[1];
+    component node = Poseidon(3);
+    node.inputs[0] <== element;
+    node.inputs[1] <== children[0];
+    node.inputs[2] <== children[1];
 
     component proven = Mux1();
     proven.c[0] <== node.out;
@@ -148,10 +148,10 @@ template FoldStep() {
     order.L <== current;
     order.R <== sibling;
 
-    component hash = Hash3();
-    hash.element <== element;
-    hash.left <== order.outL;
-    hash.right <== order.outR;
+    component hash = Poseidon(3);
+    hash.inputs[0] <== element;
+    hash.inputs[1] <== order.outL;
+    hash.inputs[2] <== order.outR;
 
     component gate = Mux1();
     gate.c[0] <== current;
