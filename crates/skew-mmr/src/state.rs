@@ -1,16 +1,19 @@
 /// The frontier of a [`crate::SkewMmr`], packed little-endian into the `state` word of
 /// `SkewMmr.sol`:
-///  - `0..MAX_DEPTH`       - `rank`s
-///  - `MAX_DEPTH`          - `depth`
-///  - `MAX_DEPTH + 1..+5`  - `count`
-///  - `MAX_DEPTH + 5`      - a sentinel, so that a live accumulator is never zero
+///  - `0..26`   - `rank`s
+///  - `26`      - `depth`
+///  - `27..31`  - `count`
+///  - `31`      - a sentinel, so that a live accumulator is never zero
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct State<const MAX_DEPTH: usize>([u8; 32]);
+
+/// The byte that holds `depth`, and the ceiling on `MAX_DEPTH` that follows from it.
+pub const DEPTH_BYTE: usize = 26;
 
 impl<const MAX_DEPTH: usize> State<MAX_DEPTH> {
     /// Packs the `rank`s of a frontier, which are `Some` below its depth, alongside its count.
     pub fn new(ranks: &[Option<u32>; MAX_DEPTH], count: u32) -> Self {
-        const { assert!(MAX_DEPTH + 5 < 32, "the state outgrows a word") }
+        const { assert!(MAX_DEPTH <= DEPTH_BYTE, "the ranks outgrow the state word") }
 
         let mut state = [0u8; 32];
         let mut depth = 0;
@@ -19,15 +22,15 @@ impl<const MAX_DEPTH: usize> State<MAX_DEPTH> {
             depth += 1;
         }
 
-        state[MAX_DEPTH] = depth as u8;
-        state[MAX_DEPTH + 1..MAX_DEPTH + 5].copy_from_slice(&count.to_le_bytes());
-        state[MAX_DEPTH + 5] = 1;
+        state[DEPTH_BYTE] = depth as u8;
+        state[DEPTH_BYTE + 1..DEPTH_BYTE + 5].copy_from_slice(&count.to_le_bytes());
+        state[DEPTH_BYTE + 5] = 1;
         Self(state)
     }
 
     /// The number of live trees, which is never above `MAX_DEPTH`.
     pub fn depth(&self) -> usize {
-        self.0[MAX_DEPTH] as usize
+        self.0[DEPTH_BYTE] as usize
     }
 
     /// The rank of `tree`, or `None` when it sits at or above [`Self::depth`].
@@ -37,7 +40,7 @@ impl<const MAX_DEPTH: usize> State<MAX_DEPTH> {
 
     /// The number of elements held by the accumulator.
     pub fn count(&self) -> u32 {
-        let count = self.0[MAX_DEPTH + 1..MAX_DEPTH + 5]
+        let count = self.0[DEPTH_BYTE + 1..DEPTH_BYTE + 5]
             .try_into()
             .expect("four bytes");
         u32::from_le_bytes(count)

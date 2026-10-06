@@ -11,7 +11,7 @@ use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use crate::{
     constraints::{array::try_from_fn, mask::prefix_mask},
-    state::State,
+    state::{DEPTH_BYTE, State},
 };
 
 /// The R1CS form of [`crate::state::State`].
@@ -92,10 +92,10 @@ fn to_field<F: PrimeField>(bytes: &[u8; 32]) -> Option<F> {
 fn unpack<const MAX_DEPTH: usize, F: PrimeField>(
     word: &FpVar<F>,
 ) -> Result<([FpVar<F>; MAX_DEPTH], FpVar<F>), SynthesisError> {
-    let (bits, _) = word.to_bits_le_with_top_bits_zero(8 * (MAX_DEPTH + 5) + 1)?;
+    let (bits, _) = word.to_bits_le_with_top_bits_zero(8 * (DEPTH_BYTE + 5) + 1)?;
     let byte = |i: usize| Boolean::le_bits_to_fp(&bits[8 * i..8 * (i + 1)]);
 
-    Ok((try_from_fn(&byte)?, byte(MAX_DEPTH)?))
+    Ok((try_from_fn(&byte)?, byte(DEPTH_BYTE)?))
 }
 
 #[cfg(test)]
@@ -139,7 +139,7 @@ mod tests {
     fn rejects_a_word_above_the_layout() {
         let cs = ConstraintSystem::<Fr>::new_ref();
         let mut bytes = [0u8; 32];
-        bytes[MAX_DEPTH + 5] = 2;
+        bytes[DEPTH_BYTE + 5] = 2;
         let word =
             FpVar::new_input(cs.clone(), || Ok(Fr::from_le_bytes_mod_order(&bytes))).unwrap();
 
