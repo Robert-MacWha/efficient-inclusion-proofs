@@ -2,15 +2,15 @@
 pragma solidity ^0.8.33;
 
 library LibSkewMmr {
-    /// Maximum number of trees in the frontier.
-    uint256 public constant MAX_DEPTH = 26;
+    /// The byte that holds `depth`, and the ceiling on `maxDepth` that follows from it.
+    uint256 internal constant DEPTH_BYTE = 26;
 
     /// @dev Initial value for the tree folding chain.
     bytes32 internal constant IV = bytes32(0);
 
     struct State {
         /// @dev The frontier: tree roots, smallest-ranked last. Entries above `depth` are undefined.
-        bytes32[MAX_DEPTH] roots;
+        bytes32[DEPTH_BYTE] roots;
 
         /// @dev 0..25  - `rank`s
         ///      26     - `depth`
@@ -18,16 +18,28 @@ library LibSkewMmr {
         ///      31     - unused, set at construction so the slot is never zero
         uint256 state;
 
+        /// @dev The depth this MMR is capped at, never above `DEPTH_BYTE`.
+        uint256 maxDepth;
+
         /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
-        bytes32[MAX_DEPTH] chains;
+        bytes32[DEPTH_BYTE] chains;
     }
 
     error TooDeep();
 
-    /// @dev Warms up storage with non-zero values to avoid cold SSTOREs.
-    function prewarm(State storage self) internal {
+    /// @notice Cap the MMR at `maxDepth` trees.
+    /// @dev Also seeds the state word's sentinel byte so the slot is never zero.
+    function init(State storage self, uint256 maxDepth) internal {
+        if (maxDepth > DEPTH_BYTE) revert TooDeep();
+
         self.state = 1 << 248;
-        for (uint256 i = 0; i < MAX_DEPTH; ++i) {
+        self.maxDepth = maxDepth;
+    }
+
+    /// @dev Warms up the storage an append can write with non-zero values to avoid cold SSTOREs.
+    function prewarm(State storage self) internal {
+        uint256 maxDepth = self.maxDepth;
+        for (uint256 i = 0; i < maxDepth; ++i) {
             self.roots[i] = bytes32(uint256(1));
             self.chains[i] = bytes32(uint256(1));
         }
@@ -64,7 +76,7 @@ library LibSkewMmr {
             d -= 1;
             s = _setRank(s, d, 0);
         } else {
-            if (d == MAX_DEPTH) revert TooDeep();
+            if (d == self.maxDepth) revert TooDeep();
 
             root = element;
             self.roots[d] = root;

@@ -3,12 +3,19 @@ pragma solidity ^0.8.33;
 
 import {Test} from "forge-std/Test.sol";
 import {SkewMmrVerifier} from "../src/SkewMmrVerifier.sol";
+import {LibSkewMmr} from "../src/lib/LibSkewMmr.sol";
+import {LibSkewMmrVerifier} from "../src/lib/LibSkewMmrVerifier.sol";
 
 contract SkewMmrVerifierTest is Test {
+    uint256 private constant MAX_DEPTH = 26;
+
+    uint256 private constant SHALLOW_DEPTH = 4;
+    uint256 private constant SHALLOW_CAPACITY = 26;
+
     SkewMmrVerifier private mmr;
 
     function setUp() public {
-        mmr = new SkewMmrVerifier();
+        mmr = new SkewMmrVerifier(MAX_DEPTH);
     }
 
     function test_verifiesCommittedFrontier() public {
@@ -29,7 +36,7 @@ contract SkewMmrVerifierTest is Test {
 
         uint256 anchorState = mmr.state();
 
-        vm.expectRevert(SkewMmrVerifier.BadFrontier.selector);
+        vm.expectRevert(LibSkewMmrVerifier.BadFrontier.selector);
         mmr.verifyFrontier(anchorState, truncated);
     }
 
@@ -75,6 +82,22 @@ contract SkewMmrVerifierTest is Test {
 
         vm.expectRevert(SkewMmrVerifier.UnknownFrontier.selector);
         mmr.verifyFrontier(anchorState, anchor);
+    }
+
+    function test_rejectsAppendsPastMaxDepth() public {
+        SkewMmrVerifier shallow = new SkewMmrVerifier(SHALLOW_DEPTH);
+
+        for (uint256 i = 0; i < SHALLOW_CAPACITY; ++i) {
+            shallow.append(bytes32(i + 1));
+        }
+
+        vm.expectRevert(LibSkewMmr.TooDeep.selector);
+        shallow.append(bytes32(SHALLOW_CAPACITY + 1));
+    }
+
+    function test_rejectsAMaxDepthAboveTheStateWord() public {
+        vm.expectRevert(LibSkewMmr.TooDeep.selector);
+        new SkewMmrVerifier(MAX_DEPTH + 1);
     }
 
     function _fill(uint256 n) internal {

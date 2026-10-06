@@ -30,7 +30,7 @@ impl Hasher<[u8; 32]> for KeccakHasher {
 #[tokio::test]
 async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Error>> {
     let provider = ProviderBuilder::new().connect_anvil_with_wallet();
-    let contract = Contract::deploy(&provider).await?;
+    let contract = Contract::deploy(&provider, U256::from(26)).await?;
     let mut mmr = Mmr::new();
 
     for i in 0..80 {

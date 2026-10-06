@@ -36,10 +36,10 @@ Benchmarks use keccak256 as the hash function. For privacy protocols, an algebra
 
 | Skew-MMR branch           | Share       | Gas    | Proof hashes |
 | ------------------------- | ----------- | ------ | ------------ |
-| Push, `roots` slot reused | 2037 / 4096 | 24,589 | 0            |
-| Merge                     | 2047 / 4096 | 27,686 | 1, 3-ary     |
-| Push, new maximum depth   | 12 / 4096   | 24,100 | 0            |
-| Mean                      |             | 26,135 | 0.5          |
+| Push, `roots` slot reused | 2037 / 4096 | 26,895 | 0            |
+| Merge                     | 2047 / 4096 | 27,942 | 1, 3-ary     |
+| Push, new maximum depth   | 12 / 4096   | 26,405 | 0            |
+| Mean                      |             | 27,417 | 0.5          |
 
 | Hash chain branch | Share         | Mean   | Range           | Proof hashes |
 | ----------------- | ------------- | ------ | --------------- | ------------ |
@@ -57,7 +57,7 @@ storage.
 
 | Structure            | Calldata words | Execution | Calldata | Total  |
 | -------------------- | -------------- | --------- | -------- | ------ |
-| Skew-MMR<sup>*</sup> | 26             | 11,026    | 13,312   | 24,338 |
+| Skew-MMR<sup>*</sup> | 26             | 10,266    | 13,312   | 23,578 |
 | Hash chain           | 5              | 5,493     | 2,560    | 8,053  |
 
 <sup>*</sup> Skew-MMR's verify cost varies with the length of the MMR. Each additional level adds 1 word to calldata (~512 gas) for an average gas cost of 6,144 and a maximum of 13,312.
@@ -68,5 +68,5 @@ Taking 14,000 gas for a 2-ary Poseidon2 and 25,000 for 3-ary [TaceoLabs/poseidon
 
 | Structure  | Append mean | Verify mean | Append + verify |
 | ---------- | ----------- | ----------- | --------------- |
-| Skew-MMR   | 38,605      | 24,338      | 62,943          |
+| Skew-MMR   | 39,887      | 23,578      | 63,465          |
 | Hash chain | 34,592      | 8,053       | 40,645          |

@@ -13,7 +13,7 @@ contract SkewMmrVerifierGasTest is Test {
     SkewMmrVerifier private mmr;
 
     function setUp() public {
-        mmr = new SkewMmrVerifier();
+        mmr = new SkewMmrVerifier(26);
     }
 
     function test_appendGasProfile() public {
@@ -76,7 +76,7 @@ contract SkewMmrVerifierGasTest is Test {
     /// Excludes the calldata the caller pays to deliver the frontier.
     function _measureVerify(uint256 n) internal returns (uint256, uint256) {
         // Fill a new MMR with `n` elements
-        SkewMmrVerifier target = new SkewMmrVerifier();
+        SkewMmrVerifier target = new SkewMmrVerifier(26);
         for (uint256 i = 0; i < n; ++i) {
             target.append(bytes32(i + 1));
         }
