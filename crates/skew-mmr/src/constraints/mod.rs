@@ -52,27 +52,28 @@ pub struct StepVar<F: PrimeField> {
 }
 
 impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEPTH, F, H> {
-    /// Verifies the MMR inclusion proof.
+    /// Verifies the MMR inclusion proof, reporting whether it holds.
     ///
     /// `roots` and `state` are witnesses like the rest of the proof, so they must be bound
     /// to authenticated public inputs in the circuit.
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
     #[tracing::instrument(target = "r1cs", skip_all)]
-    pub fn verify(&self) -> Result<(), SynthesisError> {
-        // `rank` enforces that the tree is live, so the root selected below is never padding.
-        let rank = self.state.rank(&self.tree)?;
+    pub fn verify(&self) -> Result<Boolean<F>, SynthesisError> {
+        // `live` reports that the tree is live, so the root selected below is never padding.
+        let (rank, live) = self.state.rank(&self.tree)?;
         let mut root = FpVar::zero();
         for (i, candidate) in self.roots.iter().enumerate() {
             let hit = self.tree.is_eq(&FpVar::constant(F::from(i as u64)))?;
             root = hit.select(candidate, &root)?;
         }
 
-        let active = prefix_mask::<MAX_DEPTH, F>(&self.path_len)?;
-        let within = prefix_mask::<MAX_DEPTH, F>(&rank)?;
+        let (active, path_bounded) = prefix_mask::<MAX_DEPTH, F>(&self.path_len)?;
+        let (within, rank_bounded) = prefix_mask::<MAX_DEPTH, F>(&rank)?;
+        let mut valid = live & path_bounded & rank_bounded;
         for (active, within) in active.iter().zip(&within) {
             // `path_len <= rank`, since every step the path takes must sit below `rank`.
-            within.conditional_enforce_equal(&Boolean::TRUE, active)?;
+            valid &= within | !active;
         }
 
         // One step per level between the proven node and the tree root, so a node reached by
@@ -84,7 +85,7 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
             current = active.select(&step.fold::<H>(&current)?, &current)?;
         }
 
-        current.enforce_equal(&root)
+        Ok(valid & current.is_eq(&root)?)
     }
 }
 
@@ -172,7 +173,8 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fr;
-    use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef};
+    use ark_r1cs_std::GR1CSVar;
+    use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::rand::Rng;
     use ark_std::test_rng;
 
@@ -240,17 +242,15 @@ mod tests {
     }
 
     fn check(proof: &SampleProof) -> bool {
-        circuit(proof).is_satisfied().unwrap()
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let proof = ProofVar::new_witness(cs.clone(), || Ok(proof)).unwrap();
+        let valid = proof.verify().unwrap();
+
+        assert!(cs.is_satisfied().unwrap());
+        valid.value().unwrap()
     }
 
     fn native(proof: &SampleProof) -> bool {
         proof.verify()
-    }
-
-    fn circuit(proof: &SampleProof) -> ConstraintSystemRef<Fr> {
-        let cs = ConstraintSystem::<Fr>::new_ref();
-        let proof = ProofVar::new_witness(cs.clone(), || Ok(proof)).unwrap();
-        proof.verify().unwrap();
-        cs
     }
 }

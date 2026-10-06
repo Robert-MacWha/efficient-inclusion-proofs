@@ -42,13 +42,13 @@ impl<const MAX_DEPTH: usize, F: PrimeField> StateVar<MAX_DEPTH, F> {
         &self.depth
     }
 
-    /// The rank of `tree`, enforcing that it sits below [`Self::depth`]. Where the native
-    /// [`State::rank`] would return `None`, this leaves the system unsatisfiable.
+    /// The rank of `tree`, and whether it sits below [`Self::depth`]. Where the native
+    /// [`State::rank`] would return `None`, this reports `false`.
     #[tracing::instrument(target = "r1cs", skip_all)]
-    pub fn rank(&self, tree: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
+    pub fn rank(&self, tree: &FpVar<F>) -> Result<(FpVar<F>, Boolean<F>), SynthesisError> {
         // A tree at or above `depth` is padding, which reads as rank 0 and would match an
         // empty path.
-        let populated = prefix_mask::<MAX_DEPTH, F>(&self.depth)?;
+        let (populated, bounded) = prefix_mask::<MAX_DEPTH, F>(&self.depth)?;
         let mut rank = FpVar::zero();
         let mut live = Boolean::FALSE;
         for (i, populated) in populated.iter().enumerate() {
@@ -56,9 +56,8 @@ impl<const MAX_DEPTH: usize, F: PrimeField> StateVar<MAX_DEPTH, F> {
             rank = hit.select(&self.ranks[i], &rank)?;
             live |= &hit & populated;
         }
-        live.enforce_equal(&Boolean::TRUE)?;
 
-        Ok(rank)
+        Ok((rank, live & bounded))
     }
 }
 
@@ -148,8 +147,9 @@ mod tests {
 
         assert_eq!(state.depth().value().unwrap(), Fr::from(mmr.depth() as u64));
         for tree in 0..mmr.depth() {
-            let rank = state.rank(&FpVar::constant(Fr::from(tree as u64))).unwrap();
+            let (rank, live) = state.rank(&FpVar::constant(Fr::from(tree as u64))).unwrap();
             let packed = mmr.state().rank(tree).expect("a live tree");
+            assert!(live.value().unwrap(), "tree {tree} is live");
             assert_eq!(rank.value().unwrap(), Fr::from(packed), "rank {tree}");
         }
         assert!(cs.is_satisfied().unwrap());
@@ -162,9 +162,10 @@ mod tests {
         let state = witness(&cs, &mmr);
 
         let tree = FpVar::constant(Fr::from(mmr.depth() as u64));
-        let _ = state.rank(&tree).unwrap();
+        let (_, live) = state.rank(&tree).unwrap();
 
-        assert!(!cs.is_satisfied().unwrap());
+        assert!(!live.value().unwrap());
+        assert!(cs.is_satisfied().unwrap());
     }
 
     #[test]
