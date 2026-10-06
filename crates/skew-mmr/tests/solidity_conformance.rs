@@ -72,11 +72,12 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
 
         let frontier: Vec<FixedBytes<32>> =
             roots.iter().flatten().map(|root| (*root).into()).collect();
-        contract
+        let ok = contract
             .verifyFrontier(contract.state().call().await?, frontier)
             .call()
             .await
             .map_err(|e| format!("frontier rejected after {n} appends: {e}"))?;
+        assert!(ok, "frontier rejected after {n} appends");
     }
 
     Ok(())

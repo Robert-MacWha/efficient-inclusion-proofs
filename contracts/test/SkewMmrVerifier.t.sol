@@ -21,7 +21,7 @@ contract SkewMmrVerifierTest is Test {
     function test_verifiesCommittedFrontier() public {
         for (uint256 i = 0; i < 200; ++i) {
             mmr.append(bytes32(i + 1));
-            mmr.verifyFrontier(mmr.state(), _frontier());
+            assert(mmr.verifyFrontier(mmr.state(), _frontier()));
         }
     }
 
@@ -49,8 +49,7 @@ contract SkewMmrVerifierTest is Test {
             bytes32[] memory frontier = _frontier();
             frontier[j] = bytes32(uint256(frontier[j]) ^ 1);
 
-            vm.expectRevert(SkewMmrVerifier.UnknownFrontier.selector);
-            mmr.verifyFrontier(anchorState, frontier);
+            assert(!mmr.verifyFrontier(anchorState, frontier));
         }
     }
 
@@ -59,8 +58,7 @@ contract SkewMmrVerifierTest is Test {
         uint256 forgedState = mmr.state() ^ 1;
         bytes32[] memory frontier = _frontier();
 
-        vm.expectRevert(SkewMmrVerifier.UnknownFrontier.selector);
-        mmr.verifyFrontier(forgedState, frontier);
+        assert(!mmr.verifyFrontier(forgedState, frontier));
     }
 
     function test_acceptsHistoricFrontierInsideTheWindow() public {
@@ -70,7 +68,7 @@ contract SkewMmrVerifierTest is Test {
 
         _fill(mmr.HISTORY_SIZE() - 1);
 
-        mmr.verifyFrontier(anchorState, anchor);
+        assert(mmr.verifyFrontier(anchorState, anchor));
     }
 
     function test_rejectsHistoricFrontierPastTheWindow() public {
@@ -80,8 +78,7 @@ contract SkewMmrVerifierTest is Test {
 
         _fill(mmr.HISTORY_SIZE());
 
-        vm.expectRevert(SkewMmrVerifier.UnknownFrontier.selector);
-        mmr.verifyFrontier(anchorState, anchor);
+        assert(!mmr.verifyFrontier(anchorState, anchor));
     }
 
     function test_rejectsAppendsPastMaxDepth() public {

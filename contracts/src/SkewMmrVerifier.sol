@@ -34,14 +34,14 @@ contract SkewMmrVerifier {
         history[mmr.count() % HISTORY_SIZE] = commitment;
     }
 
-    /// @notice Reverts unless `frontier` and `histState` were the frontier and state this MMR
-    ///         held at `_count(histState)`.
-    function verifyFrontier(uint256 histState, bytes32[] calldata frontier) public view {
+    /// @notice Returns true if `frontier` is the frontier this MMR held at `histState`.
+    function verifyFrontier(uint256 histState, bytes32[] calldata frontier) public view returns (bool) {
         bytes32 commitment = LibSkewMmrVerifier.frontierCommitment(histState, frontier);
 
         if (history[LibSkewMmr._count(histState) % HISTORY_SIZE] != commitment) {
-            revert UnknownFrontier();
+            return false;
         }
+        return true;
     }
 
     function MAX_DEPTH() external view returns (uint256) {
