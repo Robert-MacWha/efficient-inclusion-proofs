@@ -1,12 +1,47 @@
 {
-  "name": "skew-mmr",
+  "name": "@skew-mmr/core",
   "version": "0.1.0",
-  "private": true,
+  "description": "Reference TypeScript implementation of the skew-MMR accumulator",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Robert-MacWha/efficient-inclusion-proofs.git",
+    "directory": "packages"
+  },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mmr": {
+      "types": "./dist/mmr.d.ts",
+      "default": "./dist/mmr.js"
+    },
+    "./proof": {
+      "types": "./dist/proof.d.ts",
+      "default": "./dist/proof.js"
+    },
+    "./hasher": {
+      "types": "./dist/hasher.d.ts",
+      "default": "./dist/hasher.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "constraints": "circom test/circuits/inclusion_full.circom --r1cs --O2 -l node_modules -o $(mktemp -d)"
+    "constraints": "circom test/circuits/inclusion_full.circom --r1cs --O2 -l node_modules -o $(mktemp -d)",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "poseidon-lite": "^0.3.0"

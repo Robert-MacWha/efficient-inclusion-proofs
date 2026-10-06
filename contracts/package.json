@@ -1,0 +1,19 @@
+{
+  "name": "@skew-mmr/contracts",
+  "version": "0.1.0",
+  "description": "Solidity implementation of the skew-MMR accumulator",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Robert-MacWha/efficient-inclusion-proofs.git",
+    "directory": "contracts"
+  },
+  "files": [
+    "src/lib/LibSkewMmr.sol",
+    "src/lib/LibSkewMmrVerifier.sol",
+    "src/SkewMmrVerifier.sol"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

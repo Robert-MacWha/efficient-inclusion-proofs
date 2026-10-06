@@ -1,0 +1,17 @@
+{
+  "name": "@skew-mmr/circuits",
+  "version": "0.1.0",
+  "description": "Circom inclusion-proof gadget for the skew-MMR accumulator",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Robert-MacWha/efficient-inclusion-proofs.git",
+    "directory": "circuits"
+  },
+  "files": [
+    "*.circom"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
