@@ -1,6 +1,6 @@
-pub mod array;
+mod array;
 pub mod hasher;
-pub mod mask;
+mod mask;
 pub mod state;
 
 use std::borrow::Borrow;
@@ -30,6 +30,7 @@ pub struct ProofVar<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> {
     pub state: StateVar<MAX_DEPTH, F>,
     /// The proven element.
     pub element: FpVar<F>,
+
     /// Index into `roots` and the rank bytes of `state`.
     pub tree: FpVar<F>,
     /// The children of the proven node. Ignored when it is a leaf.
