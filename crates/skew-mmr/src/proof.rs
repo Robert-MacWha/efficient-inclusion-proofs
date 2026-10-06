@@ -91,6 +91,23 @@ impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>> Proof
     }
 }
 
+impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>> Default
+    for Proof<MAX_DEPTH, E, H>
+{
+    fn default() -> Self {
+        Self {
+            roots: [(); MAX_DEPTH].map(|_| None),
+            state: State::default(),
+            element: E::default(),
+            tree: 0,
+            children: None,
+            path_len: 0,
+            path: [(); MAX_DEPTH].map(|_| None),
+            hasher: PhantomData,
+        }
+    }
+}
+
 impl<E> Step<E> {
     fn fold<H: Hasher<E>>(&self, current: E) -> E {
         match self.right {

@@ -4,7 +4,7 @@
 ///  - `26`      - `depth`
 ///  - `27..31`  - `count`
 ///  - `31`      - a sentinel, so that a live accumulator is never zero
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct State<const MAX_DEPTH: usize>([u8; 32]);
 
 /// The byte that holds `depth`, and the ceiling on `MAX_DEPTH` that follows from it.
