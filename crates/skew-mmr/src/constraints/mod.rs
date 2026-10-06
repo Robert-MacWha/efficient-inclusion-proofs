@@ -86,6 +86,7 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
         current.enforce_equal(&root)
     }
 }
+
 impl<F: PrimeField> StepVar<F> {
     /// Folds `current` into its parent.
     #[tracing::instrument(target = "r1cs", skip_all)]
@@ -236,6 +237,7 @@ mod tests {
             );
         }
     }
+
     fn check(proof: &SampleProof) -> bool {
         circuit(proof).is_satisfied().unwrap()
     }
