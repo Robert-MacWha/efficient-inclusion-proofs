@@ -28,6 +28,16 @@ impl<const MAX_DEPTH: usize> State<MAX_DEPTH> {
         Self(state)
     }
 
+    /// Reads a packed frontier from the state word, or `None` when it is invalid.
+    pub fn try_from_bytes(bytes: [u8; 32]) -> Option<Self> {
+        let depth = bytes[DEPTH_BYTE] as usize;
+        if depth > MAX_DEPTH {
+            return None;
+        }
+
+        Some(Self(bytes))
+    }
+
     /// The number of live trees, which is never above `MAX_DEPTH`.
     pub fn depth(&self) -> usize {
         self.0[DEPTH_BYTE] as usize
