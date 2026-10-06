@@ -139,6 +139,26 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     }
 }
 
+impl<const MAX_DEPTH: usize, E: Clone + PartialEq, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
+    /// Proves the element is present in the MMR, returning a proof if so.
+    ///
+    /// Brute forces the MMR to find the element, so it is O(n) in the worst case.
+    ///
+    /// TODO: O(n) bad.
+    pub fn prove_element(&self, element: E) -> Option<Proof<MAX_DEPTH, E, H>>
+    where
+        E: PartialEq,
+    {
+        (0..self.len)
+            .rev()
+            .find(|&position| {
+                let (tree, offset) = self.locate(position);
+                self.node(tree).element_at(offset) == &element
+            })
+            .map(|position| self.prove(self.len - 1 - position))
+    }
+}
+
 impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> Default for SkewMmr<MAX_DEPTH, E, H> {
     fn default() -> Self {
         Self::new()
@@ -146,6 +166,7 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> Default for SkewMmr<MAX_DEP
 }
 
 impl<E: Clone> Node<E> {
+    /// Creates a new leaf node
     fn leaf(element: E) -> Self {
         Self {
             root: element.clone(),
@@ -155,12 +176,29 @@ impl<E: Clone> Node<E> {
         }
     }
 
+    /// Creates a new internal node with the given element and children.
     fn internal<H: Hasher<E>>(element: E, left: Node<E>, right: Node<E>) -> Self {
         Self {
             root: H::hash(&element, &left.root, &right.root),
             rank: left.rank + 1,
             element,
             children: Some(Box::new((left, right))),
+        }
+    }
+
+    /// The element of the node at `offset`. Offset 0 is this node, then the left
+    /// subtree, then the right.
+    fn element_at(&self, offset: usize) -> &E {
+        if offset == 0 {
+            return &self.element;
+        }
+
+        let children = self.children.as_ref().expect("a leaf holds only offset 0");
+        let left_size = children.0.size();
+        if offset > left_size {
+            children.1.element_at(offset - 1 - left_size)
+        } else {
+            children.0.element_at(offset - 1)
         }
     }
 
