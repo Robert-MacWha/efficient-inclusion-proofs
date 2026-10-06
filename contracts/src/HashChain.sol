@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.13;
 
 /// @title Recursive hash chain
 /// @notice Append-only set commitment with amortised O(1) appends.

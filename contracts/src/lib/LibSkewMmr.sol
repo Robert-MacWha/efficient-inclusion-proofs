@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.13;
 
 library LibSkewMmr {
     /// The byte that holds `depth`, and the ceiling on `maxDepth` that follows from it.
