@@ -24,8 +24,9 @@ contract SkewMmrVerifierGasTest is Test {
         uint256[3] memory kindTotal;
         uint256[3] memory kindCount;
         uint256 maxDepth;
+        uint256 warmup = mmr.HISTORY_SIZE();
 
-        for (uint256 i = 0; i < n; ++i) {
+        for (uint256 i = 0; i < warmup + n; ++i) {
             // Classify the append
             uint256 d = mmr.depth();
             uint256 kind = PUSH;
@@ -41,6 +42,7 @@ contract SkewMmrVerifierGasTest is Test {
             uint256 before = gasleft();
             mmr.append(bytes32(i + 1));
             uint256 used = before - gasleft();
+            if (i < warmup) continue;
 
             // Update stats
             total += used;

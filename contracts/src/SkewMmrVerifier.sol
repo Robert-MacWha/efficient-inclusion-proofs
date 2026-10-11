@@ -22,10 +22,6 @@ contract SkewMmrVerifier {
     /// @dev Caps the MMR and warms up storage with non-zero values to avoid cold SSTOREs.
     constructor(uint256 maxDepth) {
         mmr.init(maxDepth);
-        mmr.prewarm();
-        for (uint256 i = 0; i < HISTORY_SIZE; ++i) {
-            history[i] = bytes32(uint256(1));
-        }
     }
 
     function append(bytes32 element) public {

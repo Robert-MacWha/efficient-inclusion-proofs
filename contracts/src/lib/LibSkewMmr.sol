@@ -33,17 +33,7 @@ library LibSkewMmr {
     /// @notice Cap the MMR at `maxDepth` trees.
     function init(State storage self, uint256 maxDepth) internal {
         if (maxDepth > MAX_TREES) revert TooDeep();
-
         self.maxDepth = maxDepth;
-    }
-
-    /// @dev Warms up the storage an append can write with non-zero values to avoid cold SSTOREs.
-    function prewarm(State storage self) internal {
-        uint256 maxDepth = self.maxDepth;
-        for (uint256 i = 0; i < maxDepth; ++i) {
-            self.roots[i] = bytes32(uint256(1));
-            self.chains[i] = bytes32(uint256(1));
-        }
     }
 
     /// @notice Append an element to the MMR.
