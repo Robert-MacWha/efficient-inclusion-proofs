@@ -2,20 +2,21 @@
 pragma solidity ^0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {SkewMmrVerifier} from "../src/SkewMmrVerifier.sol";
+import {SkewMmrSkaffold} from "./SkewMmrSkaffold.sol";
 import {LibSkewMmr} from "../src/lib/LibSkewMmr.sol";
 import {LibSkewMmrVerifier} from "../src/lib/LibSkewMmrVerifier.sol";
 
 contract SkewMmrVerifierTest is Test {
     uint256 private constant MAX_DEPTH = LibSkewMmr.MAX_TREES;
+    uint256 private constant HISTORY_SIZE = 64;
 
     uint256 private constant SHALLOW_DEPTH = 4;
     uint256 private constant SHALLOW_CAPACITY = 26;
 
-    SkewMmrVerifier private mmr;
+    SkewMmrSkaffold private mmr;
 
     function setUp() public {
-        mmr = new SkewMmrVerifier(MAX_DEPTH);
+        mmr = new SkewMmrSkaffold(MAX_DEPTH, HISTORY_SIZE);
     }
 
     function test_verifiesCommittedFrontier() public {
@@ -97,7 +98,7 @@ contract SkewMmrVerifierTest is Test {
     }
 
     function test_rejectsAppendsPastMaxDepth() public {
-        SkewMmrVerifier shallow = new SkewMmrVerifier(SHALLOW_DEPTH);
+        SkewMmrSkaffold shallow = new SkewMmrSkaffold(SHALLOW_DEPTH, HISTORY_SIZE);
 
         for (uint256 i = 0; i < SHALLOW_CAPACITY; ++i) {
             shallow.append(bytes32(i + 1));
@@ -109,7 +110,7 @@ contract SkewMmrVerifierTest is Test {
 
     function test_rejectsAMaxDepthAboveTheRankWord() public {
         vm.expectRevert(LibSkewMmr.TooDeep.selector);
-        new SkewMmrVerifier(MAX_DEPTH + 1);
+        new SkewMmrSkaffold(MAX_DEPTH + 1, HISTORY_SIZE);
     }
 
     function _fill(uint256 n) internal {

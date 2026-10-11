@@ -9,7 +9,7 @@ use skew_mmr::hasher::Hasher;
 sol!(
     #[sol(rpc)]
     Contract,
-    "../../contracts/out/SkewMmrVerifier.sol/SkewMmrVerifier.json"
+    "../../contracts/out/SkewMmrSkaffold.sol/SkewMmrSkaffold.json"
 );
 
 type Mmr = SkewMmr<42, [u8; 32], KeccakHasher>;
@@ -30,7 +30,7 @@ impl Hasher<[u8; 32]> for KeccakHasher {
 #[tokio::test]
 async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Error>> {
     let provider = ProviderBuilder::new().connect_anvil_with_wallet();
-    let contract = Contract::deploy(&provider, U256::from(42)).await?;
+    let contract = Contract::deploy(&provider, U256::from(42), U256::from(64)).await?;
     let mut mmr = Mmr::new();
 
     for i in 0..80 {

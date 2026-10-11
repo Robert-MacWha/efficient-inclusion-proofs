@@ -7,24 +7,24 @@ import {LibSkewMmrVerifier} from "./lib/LibSkewMmrVerifier.sol";
 /// @title Skew-MMR frontier verifier
 /// @notice Commits to the frontier on every append so a caller can pass it in calldata
 ///         and have it checked against a single storage word.
-contract SkewMmrVerifier {
+contract SkewMmrWithHistory {
     using LibSkewMmr for LibSkewMmr.State;
 
-    uint256 public constant HISTORY_SIZE = 64;
-
-    LibSkewMmr.State private mmr;
+    LibSkewMmr.State internal mmr;
 
     /// @dev `history[count % HISTORY_SIZE]` commits to the frontier at `count`.
-    bytes32[HISTORY_SIZE] public history;
+    mapping(uint256 => bytes32) public history;
+    uint256 public immutable HISTORY_SIZE;
 
     error UnknownFrontier();
 
     /// @dev Caps the MMR and warms up storage with non-zero values to avoid cold SSTOREs.
-    constructor(uint256 maxDepth) {
+    constructor(uint256 maxDepth, uint256 historySize) {
         mmr.init(maxDepth);
+        HISTORY_SIZE = historySize;
     }
 
-    function append(bytes32 element) public {
+    function _append(bytes32 element) internal {
         bytes32 commitment = LibSkewMmrVerifier.append(mmr, element, _hash);
 
         history[mmr.count % HISTORY_SIZE] = commitment;
@@ -68,7 +68,7 @@ contract SkewMmrVerifier {
         return mmr.count;
     }
 
-    function _hash(bytes32 a, bytes32 b, bytes32 c) internal pure returns (bytes32) {
+    function _hash(bytes32 a, bytes32 b, bytes32 c) internal pure virtual returns (bytes32) {
         return keccak256(abi.encode(a, b, c));
     }
 }

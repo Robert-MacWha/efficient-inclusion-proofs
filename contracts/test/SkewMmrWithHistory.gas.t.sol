@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import {Test, console} from "forge-std/Test.sol";
-import {SkewMmrVerifier} from "../src/SkewMmrVerifier.sol";
+import {SkewMmrSkaffold} from "./SkewMmrSkaffold.sol";
 
 /// @dev Gas benchmarks. These report rather than assert; run with `-vv` to read them.
 contract SkewMmrVerifierGasTest is Test {
@@ -10,10 +10,10 @@ contract SkewMmrVerifierGasTest is Test {
     uint256 private constant MERGE = 1;
     uint256 private constant GROW = 2;
 
-    SkewMmrVerifier private mmr;
+    SkewMmrSkaffold private mmr;
 
     function setUp() public {
-        mmr = new SkewMmrVerifier(26);
+        mmr = new SkewMmrSkaffold(26, 64);
     }
 
     function test_appendGasProfile() public {
@@ -78,7 +78,7 @@ contract SkewMmrVerifierGasTest is Test {
     /// Excludes the calldata the caller pays to deliver the frontier.
     function _measureVerify(uint256 n) internal returns (uint256, uint256) {
         // Fill a new MMR with `n` elements
-        SkewMmrVerifier target = new SkewMmrVerifier(26);
+        SkewMmrSkaffold target = new SkewMmrSkaffold(26, 64);
         for (uint256 i = 0; i < n; ++i) {
             target.append(bytes32(i + 1));
         }
