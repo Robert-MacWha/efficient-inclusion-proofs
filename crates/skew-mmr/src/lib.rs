@@ -90,7 +90,7 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
 
     /// The frontier, packed by [`State`].
     pub fn state(&self) -> State<MAX_DEPTH> {
-        State::new(&self.ranks(), self.len as u32)
+        State::new(&self.ranks(), self.len as u64)
     }
 
     pub fn len(&self) -> usize {

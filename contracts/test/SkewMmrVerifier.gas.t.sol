@@ -87,12 +87,13 @@ contract SkewMmrVerifierGasTest is Test {
         for (uint256 i = 0; i < d; ++i) {
             frontier[i] = target.roots(i);
         }
-        uint256 anchorState = target.state();
+        uint256 anchorRanks = target.packedRanks();
+        uint256 anchorCount = target.count();
 
         // Measure verification gas cost
         vm.cool(address(target));
         uint256 before = gasleft();
-        target.verifyFrontier(anchorState, frontier);
+        target.verifyFrontier(anchorRanks, d, anchorCount, frontier);
         return (before - gasleft(), d);
     }
 

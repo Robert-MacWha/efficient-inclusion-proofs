@@ -3,7 +3,7 @@ import { before, describe, test } from "node:test";
 import type { WasmTester } from "circom_tester";
 
 import type { Proof } from "../src/proof.ts";
-import { MAX_RANK, SENTINEL_BIT, filled, input } from "./helpers.ts";
+import { MAX_RANK, MAX_TREES, RANK_BITS, filled, input } from "./helpers.ts";
 import { accepts, compile, rejects, satisfies } from "./verifiers.ts";
 
 const FIELD =
@@ -84,10 +84,18 @@ describe("SkewMmrInclusion signals", () => {
     await rejects(satisfies(circuit, forged));
   });
 
-  test("rejects a state wider than its packing", async () => {
+  test("rejects packed ranks wider than their packing", async () => {
     const accumulator = filled(100);
     const forged = input(accumulator, accumulator.prove(40), 40n);
-    forged.state |= 1n << BigInt(SENTINEL_BIT + 1);
+    forged.packedRanks |= 1n << BigInt(RANK_BITS * MAX_TREES);
+
+    await rejects(satisfies(circuit, forged));
+  });
+
+  test("rejects a depth wider than a rank", async () => {
+    const accumulator = filled(100);
+    const forged = input(accumulator, accumulator.prove(40), 40n);
+    forged.depth = forged.tree + (1n << BigInt(RANK_BITS));
 
     await rejects(satisfies(circuit, forged));
   });

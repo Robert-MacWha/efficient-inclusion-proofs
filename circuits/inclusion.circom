@@ -6,19 +6,20 @@ include "circomlib/circuits/mux1.circom";
 include "circomlib/circuits/switcher.circom";
 include "circomlib/circuits/poseidon.circom";
 
-/// Verifies that `element` is held by the accumulator described by `roots` and `state`.
+/// Verifies that `element` is held by the accumulator described by `roots`, `packedRanks`
+/// and `depth`.
 ///
-/// `roots` and `state` must come from the same frontier and be authenticated by the
-/// caller.
+/// They must come from the same frontier and be authenticated by the caller.
 template SkewMmrInclusion(MAX_TREES) {
     // A frontier at capacity holds ranks `MAX_TREES - 1 .. 0`, so no tree within capacity
     // outgrows this and no path is longer than it.
     var MAX_RANK = MAX_TREES - 1;
-    // `rank` and `depth` are bytes of `state`, so comparisons against them are byte-wide.
-    var BYTE_BITS = 8;
+    // `rank`s are packed into `packedRanks` at this width, and `depth` is held to it.
+    var RANK_BITS = 6;
 
     signal input roots[MAX_TREES];
-    signal input state;
+    signal input packedRanks;
+    signal input depth;
     signal input element;
     signal input tree;
     signal input children[2];
@@ -27,8 +28,11 @@ template SkewMmrInclusion(MAX_TREES) {
     signal input pathSiblings[MAX_RANK];
     signal input pathRight[MAX_RANK];
 
-    component frontier = UnpackState(MAX_TREES);
-    frontier.state <== state;
+    component frontier = UnpackRanks(MAX_TREES);
+    frontier.packedRanks <== packedRanks;
+
+    component depthBits = Num2Bits(RANK_BITS);
+    depthBits.in <== depth;
 
     // Select the root and rank of the tree that the proven node belongs to.
     component selected = Multiplexer(2, MAX_TREES);
@@ -41,12 +45,12 @@ template SkewMmrInclusion(MAX_TREES) {
     signal rank <== selected.out[1];
 
     // Stops the proof selecting a root above the frontier.
-    component live = LessThan(BYTE_BITS);
+    component live = LessThan(RANK_BITS);
     live.in[0] <== tree;
-    live.in[1] <== frontier.depth;
+    live.in[1] <== depth;
     live.out === 1;
 
-    component fits = LessEqThan(BYTE_BITS);
+    component fits = LessEqThan(RANK_BITS);
     fits.in[0] <== pathLen;
     fits.in[1] <== rank;
     fits.out === 1;
@@ -97,37 +101,25 @@ template SkewMmrInclusion(MAX_TREES) {
     current[MAX_RANK] === root;
 }
 
-/// Unpacks the frontier from the `state` word of SkewMmr.sol: 
-///  - 0..25   - `rank`s
-///  - 26      - `depth`
-///  - 27..30  - `count`
-///  - 31      - sentinel
-template UnpackState(MAX_TREES) {
-    var DEPTH_BYTE = 26;
-    var SENTINEL_BIT = 248;
-    assert(MAX_TREES <= DEPTH_BYTE);
+/// Unpacks the 6-bit `rank`s from the `packedRanks` word of LibSkewMmr.sol.
+template UnpackRanks(MAX_TREES) {
+    var RANK_BITS = 6;
+    assert(MAX_TREES <= 42);
 
-    signal input state;
+    signal input packedRanks;
     signal output ranks[MAX_TREES];
-    signal output depth;
 
-    component bits = Num2Bits(SENTINEL_BIT + 1);
-    bits.in <== state;
+    component bits = Num2Bits(RANK_BITS * MAX_TREES);
+    bits.in <== packedRanks;
 
-    component rankBytes[MAX_TREES];
+    component rankBits[MAX_TREES];
     for (var i = 0; i < MAX_TREES; i++) {
-        rankBytes[i] = Bits2Num(8);
-        for (var b = 0; b < 8; b++) {
-            rankBytes[i].in[b] <== bits.out[8 * i + b];
+        rankBits[i] = Bits2Num(RANK_BITS);
+        for (var b = 0; b < RANK_BITS; b++) {
+            rankBits[i].in[b] <== bits.out[RANK_BITS * i + b];
         }
-        ranks[i] <== rankBytes[i].out;
+        ranks[i] <== rankBits[i].out;
     }
-
-    component depthByte = Bits2Num(8);
-    for (var b = 0; b < 8; b++) {
-        depthByte.in[b] <== bits.out[8 * DEPTH_BYTE + b];
-    }
-    depth <== depthByte.out;
 }
 
 /// One ancestor of the proven node. Steps past `path.len()` pass `current` through unchanged.

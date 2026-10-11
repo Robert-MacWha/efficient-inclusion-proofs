@@ -12,7 +12,7 @@ sol!(
     "../../contracts/out/SkewMmrVerifier.sol/SkewMmrVerifier.json"
 );
 
-type Mmr = SkewMmr<26, [u8; 32], KeccakHasher>;
+type Mmr = SkewMmr<42, [u8; 32], KeccakHasher>;
 
 /// Matches `keccak256(abi.encode(element, left, right))` in `SkewMmr.sol`.
 struct KeccakHasher;
@@ -30,7 +30,7 @@ impl Hasher<[u8; 32]> for KeccakHasher {
 #[tokio::test]
 async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Error>> {
     let provider = ProviderBuilder::new().connect_anvil_with_wallet();
-    let contract = Contract::deploy(&provider, U256::from(26)).await?;
+    let contract = Contract::deploy(&provider, U256::from(42)).await?;
     let mut mmr = Mmr::new();
 
     for i in 0..80 {
@@ -47,9 +47,9 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         let depth: usize = contract.depth().call().await?.to();
         assert_eq!(depth, mmr.depth(), "depth after {n} appends");
         assert_eq!(
-            U256::from_le_slice(mmr.state().bytes()),
-            contract.state().call().await?,
-            "state after {n} appends"
+            U256::from_le_slice(mmr.state().packed_ranks()),
+            contract.packedRanks().call().await?,
+            "packed ranks after {n} appends"
         );
         assert_eq!(
             contract.count().call().await?.to::<usize>(),
@@ -73,7 +73,12 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         let frontier: Vec<FixedBytes<32>> =
             roots.iter().flatten().map(|root| (*root).into()).collect();
         let ok = contract
-            .verifyFrontier(contract.state().call().await?, frontier)
+            .verifyFrontier(
+                contract.packedRanks().call().await?,
+                U256::from(depth),
+                U256::from(mmr.len()),
+                frontier,
+            )
             .call()
             .await
             .map_err(|e| format!("frontier rejected after {n} appends: {e}"))?;

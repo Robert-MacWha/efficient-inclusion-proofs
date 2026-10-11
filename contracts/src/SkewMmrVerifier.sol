@@ -31,14 +31,18 @@ contract SkewMmrVerifier {
     function append(bytes32 element) public {
         bytes32 commitment = LibSkewMmrVerifier.append(mmr, element, _hash);
 
-        history[mmr.count() % HISTORY_SIZE] = commitment;
+        history[mmr.count % HISTORY_SIZE] = commitment;
     }
 
-    /// @notice Returns true if `frontier` is the frontier this MMR held at `histState`.
-    function verifyFrontier(uint256 histState, bytes32[] calldata frontier) public view returns (bool) {
-        bytes32 commitment = LibSkewMmrVerifier.frontierCommitment(histState, frontier);
+    /// @notice Returns true if `frontier` is the frontier this MMR held at `histCount`.
+    function verifyFrontier(uint256 histRanks, uint256 histDepth, uint256 histCount, bytes32[] calldata frontier)
+        public
+        view
+        returns (bool)
+    {
+        bytes32 commitment = LibSkewMmrVerifier.frontierCommitment(histRanks, histDepth, histCount, frontier);
 
-        if (history[LibSkewMmr._count(histState) % HISTORY_SIZE] != commitment) {
+        if (history[histCount % HISTORY_SIZE] != commitment) {
             return false;
         }
         return true;
@@ -48,8 +52,8 @@ contract SkewMmrVerifier {
         return mmr.maxDepth;
     }
 
-    function state() external view returns (uint256) {
-        return mmr.state;
+    function packedRanks() external view returns (uint256) {
+        return mmr.packedRanks;
     }
 
     function ranks(uint256 tree) external view returns (uint8) {
@@ -61,11 +65,11 @@ contract SkewMmrVerifier {
     }
 
     function depth() external view returns (uint256) {
-        return mmr.depth();
+        return mmr.depth;
     }
 
     function count() external view returns (uint256) {
-        return mmr.count();
+        return mmr.count;
     }
 
     function _hash(bytes32 a, bytes32 b, bytes32 c) internal pure returns (bytes32) {

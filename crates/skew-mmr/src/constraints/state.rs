@@ -12,34 +12,36 @@ use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 
 use crate::{
     constraints::{array::try_from_fn, mask::prefix_mask},
-    state::{DEPTH_BYTE, State},
+    state::{RANK_BITS, State},
 };
 
 /// The R1CS form of [`crate::state::State`].
-///
-/// TODO: Test whether `ranks` and `depth` are properly constrained with `word`.
-/// I think they are because they are derived from `word` in `new_variable` and the
-/// derivation happens in-circuit(?) using FpVar methods, but I'm not actually sure if
-/// work done in `new_variable` is enforced in circuit. If now, we should unpack in place
-/// within the functions and just hold `word` in the struct.
+/// within the functions and just hold `packed_ranks` in the struct.
 #[derive(Debug, Clone)]
 pub struct StateVar<const MAX_DEPTH: usize, F: PrimeField> {
-    word: FpVar<F>,
+    packed_ranks: FpVar<F>,
     ranks: [FpVar<F>; MAX_DEPTH],
     depth: FpVar<F>,
+    count: FpVar<F>,
 }
 
 impl<const MAX_DEPTH: usize, F: PrimeField> StateVar<MAX_DEPTH, F> {
-    /// The packed word.
+    /// The packed `rank`s.
     #[tracing::instrument(target = "r1cs", skip_all)]
-    pub fn word(&self) -> &FpVar<F> {
-        &self.word
+    pub fn packed_ranks(&self) -> &FpVar<F> {
+        &self.packed_ranks
     }
 
     /// The number of live trees.
     #[tracing::instrument(target = "r1cs", skip_all)]
     pub fn depth(&self) -> &FpVar<F> {
         &self.depth
+    }
+
+    /// The number of elements held by the accumulator.
+    #[tracing::instrument(target = "r1cs", skip_all)]
+    pub fn count(&self) -> &FpVar<F> {
+        &self.count
     }
 
     /// The rank of `tree`, and whether it sits below [`Self::depth`]. Where the native
@@ -73,18 +75,34 @@ impl<const MAX_DEPTH: usize, F: PrimeField> AllocVar<State<MAX_DEPTH>, F>
         let cs = ns.cs();
 
         let state = f()?;
-        let word = to_field::<F>(state.borrow().bytes()).ok_or(SynthesisError::Unsatisfiable)?;
-        let word = FpVar::new_variable(cs, || Ok(word), mode)?;
-        let (ranks, depth) = unpack::<MAX_DEPTH, F>(&word)?;
+        let state = state.borrow();
+        const {
+            assert!(
+                F::MODULUS_BIT_SIZE as usize > RANK_BITS * MAX_DEPTH,
+                "the ranks outgrow the field"
+            )
+        }
+        let packed_ranks = F::from_le_bytes_mod_order(state.packed_ranks());
+        let packed_ranks = FpVar::new_variable(cs.clone(), || Ok(packed_ranks), mode)?;
+        let ranks = unpack::<MAX_DEPTH, F>(&packed_ranks)?;
+        let depth = FpVar::new_variable(cs.clone(), || Ok(F::from(state.depth() as u64)), mode)?;
+        let count = FpVar::new_variable(cs, || Ok(F::from(state.count())), mode)?;
 
-        Ok(Self { word, ranks, depth })
+        Ok(Self {
+            packed_ranks,
+            ranks,
+            depth,
+            count,
+        })
     }
 }
 
 impl<const MAX_DEPTH: usize, F: PrimeField> EqGadget<F> for StateVar<MAX_DEPTH, F> {
     #[tracing::instrument(target = "r1cs", skip(self, other))]
     fn is_eq(&self, other: &Self) -> Result<Boolean<F>, SynthesisError> {
-        self.word.is_eq(&other.word)
+        Ok(self.packed_ranks.is_eq(&other.packed_ranks)?
+            & self.depth.is_eq(&other.depth)?
+            & self.count.is_eq(&other.count)?)
     }
 }
 
@@ -92,46 +110,43 @@ impl<const MAX_DEPTH: usize, F: PrimeField> GR1CSVar<F> for StateVar<MAX_DEPTH, 
     type Value = State<MAX_DEPTH>;
 
     fn cs(&self) -> ConstraintSystemRef<F> {
-        self.word.cs()
+        self.packed_ranks.cs()
     }
 
     fn value(&self) -> Result<Self::Value, SynthesisError> {
-        let word = self.word.value()?;
-        let bytes = word.into_bigint().to_bytes_le();
-        let bytes: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| SynthesisError::Unsatisfiable)?;
+        let packed_ranks = self.packed_ranks.value()?.into_bigint().to_bytes_le();
+        let packed_ranks = packed_ranks.try_into().ok();
+        let depth = to_u64(self.depth.value()?).and_then(|depth| u8::try_from(depth).ok());
+        let count = to_u64(self.count.value()?);
 
-        State::try_from_bytes(bytes).ok_or(SynthesisError::Unsatisfiable)
+        let (Some(packed_ranks), Some(depth), Some(count)) = (packed_ranks, depth, count) else {
+            return Err(SynthesisError::Unsatisfiable);
+        };
+        State::try_from_parts(packed_ranks, depth, count).ok_or(SynthesisError::Unsatisfiable)
     }
 }
 
-/// Reads a packed word as a field element, or `None` when `F` is too small to hold it.
-fn to_field<F: PrimeField>(bytes: &[u8; 32]) -> Option<F> {
-    let field = F::from_le_bytes_mod_order(bytes);
-    let reduced = field.into_bigint().to_bytes_le();
-
-    let byte = |slice: &[u8], i: usize| slice.get(i).copied().unwrap_or(0);
-    let fits =
-        (0..reduced.len().max(bytes.len())).all(|i| byte(&reduced, i) == byte(bytes.as_slice(), i));
-
-    fits.then_some(field)
+/// Reads a field element as a `u64`, or `None` when it is too large.
+fn to_u64<F: PrimeField>(value: F) -> Option<u64> {
+    let bigint = value.into_bigint();
+    let (low, high) = bigint.as_ref().split_first()?;
+    high.iter().all(|limb| *limb == 0).then_some(*low)
 }
 
-/// Reads the `rank`s and `depth` from a word packed by [`State`].
+/// Reads the `rank`s from a word packed by [`State`].
 #[tracing::instrument(target = "r1cs", skip_all)]
 fn unpack<const MAX_DEPTH: usize, F: PrimeField>(
-    word: &FpVar<F>,
-) -> Result<([FpVar<F>; MAX_DEPTH], FpVar<F>), SynthesisError> {
-    let (bits, _) = word.to_bits_le_with_top_bits_zero(8 * (DEPTH_BYTE + 5) + 1)?;
-    let byte = |i: usize| Boolean::le_bits_to_fp(&bits[8 * i..8 * (i + 1)]);
+    packed_ranks: &FpVar<F>,
+) -> Result<[FpVar<F>; MAX_DEPTH], SynthesisError> {
+    let (bits, _) = packed_ranks.to_bits_le_with_top_bits_zero(RANK_BITS * MAX_DEPTH)?;
 
-    Ok((try_from_fn(&byte)?, byte(DEPTH_BYTE)?))
+    try_from_fn(|i| Boolean::le_bits_to_fp(&bits[RANK_BITS * i..RANK_BITS * (i + 1)]))
 }
 
 #[cfg(test)]
 mod tests {
     use ark_bn254::Fr;
+    use ark_ff::Field;
     use ark_r1cs_std::GR1CSVar;
     use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef};
 
@@ -146,12 +161,27 @@ mod tests {
         let state = witness(&cs, &mmr);
 
         assert_eq!(state.depth().value().unwrap(), Fr::from(mmr.depth() as u64));
+        assert_eq!(state.count().value().unwrap(), Fr::from(mmr.len() as u64));
         for tree in 0..mmr.depth() {
             let (rank, live) = state.rank(&FpVar::constant(Fr::from(tree as u64))).unwrap();
             let packed = mmr.state().rank(tree).expect("a live tree");
             assert!(live.value().unwrap(), "tree {tree} is live");
             assert_eq!(rank.value().unwrap(), Fr::from(packed), "rank {tree}");
         }
+        assert!(cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    fn reads_an_empty_frontier() {
+        let mmr: Mmr = filled(0);
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let state = witness(&cs, &mmr);
+
+        let (_, live) = state.rank(&FpVar::zero()).unwrap();
+
+        assert_eq!(state.depth().value().unwrap(), Fr::from(0u64));
+        assert_eq!(state.count().value().unwrap(), Fr::from(0u64));
+        assert!(!live.value().unwrap());
         assert!(cs.is_satisfied().unwrap());
     }
 
@@ -169,21 +199,29 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_depth_above_the_maximum() {
+        let mmr: Mmr = filled(60);
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let mut state = witness(&cs, &mmr);
+        state.depth =
+            FpVar::new_witness(cs.clone(), || Ok(Fr::from(MAX_DEPTH as u64 + 1))).unwrap();
+
+        for tree in 0..MAX_DEPTH {
+            let (_, live) = state.rank(&FpVar::constant(Fr::from(tree as u64))).unwrap();
+            assert!(!live.value().unwrap(), "tree {tree} is not live");
+        }
+        assert!(cs.is_satisfied().unwrap());
+    }
+
+    #[test]
     fn rejects_a_word_above_the_layout() {
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let mut bytes = [0u8; 32];
-        bytes[DEPTH_BYTE + 5] = 2;
-        let word =
-            FpVar::new_input(cs.clone(), || Ok(Fr::from_le_bytes_mod_order(&bytes))).unwrap();
+        let word = Fr::from(2u64).pow([(RANK_BITS * MAX_DEPTH) as u64]);
+        let word = FpVar::new_input(cs.clone(), || Ok(word)).unwrap();
 
         let _ = unpack::<MAX_DEPTH, Fr>(&word).unwrap();
 
         assert!(!cs.is_satisfied().unwrap());
-    }
-
-    #[test]
-    fn rejects_a_word_that_outgrows_the_field() {
-        assert_eq!(to_field::<Fr>(&[0xff; 32]), None);
     }
 
     fn witness(cs: &ConstraintSystemRef<Fr>, mmr: &Mmr) -> StateVar<MAX_DEPTH, Fr> {

@@ -2,37 +2,38 @@
 pragma solidity ^0.8.13;
 
 library LibSkewMmr {
-    /// The byte that holds `depth`, and the ceiling on `maxDepth` that follows from it.
-    uint256 internal constant DEPTH_BYTE = 26;
+    /// The number of ranks `packedRanks` holds, and the ceiling on `maxDepth` that follows from it.
+    uint256 internal constant MAX_TREES = 42;
+
+    uint256 internal constant RANK_BITS = 6;
+    uint256 internal constant RANK_MASK = (1 << RANK_BITS) - 1;
 
     /// @dev Initial value for the tree folding chain.
     bytes32 internal constant IV = bytes32(0);
 
     struct State {
         /// @dev The frontier: tree roots, smallest-ranked last. Entries above `depth` are undefined.
-        bytes32[DEPTH_BYTE] roots;
+        bytes32[MAX_TREES] roots;
 
-        /// @dev 0..25  - `rank`s
-        ///      26     - `depth`
-        ///      27..30 - `count`
-        ///      31     - unused, set at construction so the slot is never zero
-        uint256 state;
+        /// @dev The `rank` of tree `i` sits at bits `6i..6i+6`. Ranks at or above `depth` are zero.
+        uint256 packedRanks;
 
-        /// @dev The depth this MMR is capped at, never above `DEPTH_BYTE`.
+        uint8 depth;
+        uint64 count;
+
+        /// @dev The depth this MMR is capped at, never above `MAX_TREES`.
         uint256 maxDepth;
 
         /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
-        bytes32[DEPTH_BYTE] chains;
+        bytes32[MAX_TREES] chains;
     }
 
     error TooDeep();
 
     /// @notice Cap the MMR at `maxDepth` trees.
-    /// @dev Also seeds the state word's sentinel byte so the slot is never zero.
     function init(State storage self, uint256 maxDepth) internal {
-        if (maxDepth > DEPTH_BYTE) revert TooDeep();
+        if (maxDepth > MAX_TREES) revert TooDeep();
 
-        self.state = 1 << 248;
         self.maxDepth = maxDepth;
     }
 
@@ -61,20 +62,20 @@ library LibSkewMmr {
         bytes32 element,
         function(bytes32, bytes32, bytes32) internal view returns (bytes32) hash
     ) internal returns (bytes32 top) {
-        uint256 s = self.state;
-        uint256 d = _depth(s);
+        uint256 r = self.packedRanks;
+        uint256 d = self.depth;
         uint256 tree;
         uint256 rank;
         bytes32 root;
 
-        if (d >= 2 && _rank(s, d - 1) == _rank(s, d - 2)) {
+        if (d >= 2 && _rank(r, d - 1) == _rank(r, d - 2)) {
             root = hash(element, self.roots[d - 1], self.roots[d - 2]);
             self.roots[d - 2] = root;
 
             tree = d - 2;
-            rank = _rank(s, d - 1) + 1;
+            rank = _rank(r, d - 1) + 1;
             d -= 1;
-            s = _setRank(s, d, 0);
+            r = _setRank(r, d, 0);
         } else {
             if (d == self.maxDepth) revert TooDeep();
 
@@ -89,21 +90,14 @@ library LibSkewMmr {
         top = _link(tree >= 1 ? self.chains[tree - 1] : IV, root);
         self.chains[tree] = top;
 
-        s = _setRank(s, tree, rank);
-        s = _setDepth(s, d);
-        self.state = _incrementCount(s);
+        self.packedRanks = _setRank(r, tree, rank);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        self.depth = uint8(d);
+        self.count += 1;
     }
 
     function ranks(State storage self, uint256 tree) internal view returns (uint8) {
-        return uint8(_rank(self.state, tree));
-    }
-
-    function depth(State storage self) internal view returns (uint256) {
-        return _depth(self.state);
-    }
-
-    function count(State storage self) internal view returns (uint256) {
-        return _count(self.state);
+        return uint8(_rank(self.packedRanks, tree));
     }
 
     function _link(bytes32 prev, bytes32 root) internal pure returns (bytes32 chain) {
@@ -114,28 +108,12 @@ library LibSkewMmr {
         }
     }
 
-    function _rank(uint256 s, uint256 tree) internal pure returns (uint256) {
-        return (s >> (8 * tree)) & 0xff;
+    function _rank(uint256 r, uint256 tree) internal pure returns (uint256) {
+        return (r >> (RANK_BITS * tree)) & RANK_MASK;
     }
 
-    function _setRank(uint256 s, uint256 tree, uint256 rank) internal pure returns (uint256) {
-        uint256 offset = 8 * tree;
-        return (s & ~(uint256(0xff) << offset)) | (rank << offset);
-    }
-
-    function _depth(uint256 s) internal pure returns (uint256) {
-        return (s >> 208) & 0xff;
-    }
-
-    function _setDepth(uint256 s, uint256 d) internal pure returns (uint256) {
-        return (s & ~(uint256(0xff) << 208)) | (d << 208);
-    }
-
-    function _count(uint256 s) internal pure returns (uint256) {
-        return (s >> 216) & 0xffffffff;
-    }
-
-    function _incrementCount(uint256 s) internal pure returns (uint256) {
-        return s + (uint256(1) << 216);
+    function _setRank(uint256 r, uint256 tree, uint256 rank) internal pure returns (uint256) {
+        uint256 offset = RANK_BITS * tree;
+        return (r & ~(RANK_MASK << offset)) | (rank << offset);
     }
 }

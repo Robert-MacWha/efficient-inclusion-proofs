@@ -6,15 +6,14 @@ import type { Proof } from "../src/proof.ts";
 export const MAX_TREES = 8;
 export const MAX_RANK = MAX_TREES - 1;
 
-/** `state` layout, matching `SkewMmr.sol`. */
-const DEPTH_BYTE = 26;
-const COUNT_BYTE = 27;
-export const SENTINEL_BIT = 248;
+/** Width of each `rank` in `packedRanks`, matching `LibSkewMmr.sol`. */
+export const RANK_BITS = 6;
 
 /** The input signals of `SkewMmrInclusion`. */
 export interface Input {
   roots: bigint[];
-  state: bigint;
+  packedRanks: bigint;
+  depth: bigint;
   element: bigint;
   tree: bigint;
   children: [bigint, bigint];
@@ -44,7 +43,8 @@ export function input(
 ): Input {
   return {
     roots: pad(accumulator.roots(), MAX_TREES),
-    state: pack(accumulator.ranks(), accumulator.depth(), accumulator.len()),
+    packedRanks: pack(accumulator.ranks()),
+    depth: BigInt(accumulator.depth()),
     element,
     tree: BigInt(proof.tree),
     children: proof.children ?? [0n, 0n],
@@ -55,17 +55,11 @@ export function input(
   };
 }
 
-/** Packs a frontier into the `state` word `SkewMmr.sol` holds. */
-function pack(ranks: number[], depth: number, count: number): bigint {
-  const bytes = ranks.reduce(
-    (state, rank, i) => state | (BigInt(rank) << BigInt(8 * i)),
+/** Packs `rank`s into the `packedRanks` word `LibSkewMmr.sol` holds. */
+function pack(ranks: number[]): bigint {
+  return ranks.reduce(
+    (packed, rank, i) => packed | (BigInt(rank) << BigInt(RANK_BITS * i)),
     0n,
-  );
-  return (
-    bytes |
-    (BigInt(depth) << BigInt(8 * DEPTH_BYTE)) |
-    (BigInt(count) << BigInt(8 * COUNT_BYTE)) |
-    (1n << BigInt(SENTINEL_BIT))
   );
 }
 
