@@ -1,6 +1,6 @@
 {
   "name": "@skew-mmr/circuits",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Circom inclusion-proof gadget for the skew-MMR accumulator",
   "license": "MIT",
   "repository": {
