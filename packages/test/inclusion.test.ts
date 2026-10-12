@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 
 import type { WasmTester } from "circom_tester";
@@ -23,6 +24,15 @@ describe("SkewMmrInclusion signals", () => {
   test("accepts the signals an honest proof encodes to", async () => {
     const accumulator = filled(100);
     await accepts(satisfies(circuit, input(accumulator, accumulator.prove(40), 40n)));
+  });
+
+  test("refuses a non-member through `valid`, not an unsatisfiable witness", async () => {
+    const accumulator = filled(100);
+    const witness = await circuit.calculateWitness(
+      input(accumulator, accumulator.prove(40), 1000n),
+    );
+    await circuit.checkConstraints(witness);
+    assert.equal(witness[1], 0n);
   });
 
   test("rejects a direction that is not a bit", async () => {

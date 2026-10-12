@@ -6,10 +6,12 @@ include "circomlib/circuits/mux1.circom";
 include "circomlib/circuits/switcher.circom";
 include "circomlib/circuits/poseidon.circom";
 
-/// Verifies that `element` is held by the accumulator described by `roots`, `packedRanks`
-/// and `depth`.
+/// Outputs a `valid` boolean when `element` is held by the accumulator described by `roots`,
+/// `packedRanks` and `depth`.
 ///
-/// They must come from the same frontier and be authenticated by the caller.
+/// They must come from the same frontier and be authenticated by the caller. Signals that are
+/// not well formed (ranks or a depth wider than their packing, a direction that is not a bit,
+/// a `tree` past `MAX_TREES`) have no witness at all.
 template SkewMmrInclusion(MAX_TREES) {
     // A frontier at capacity holds ranks `MAX_TREES - 1 .. 0`, so no tree within capacity
     // outgrows this and no path is longer than it.
@@ -27,6 +29,7 @@ template SkewMmrInclusion(MAX_TREES) {
     signal input pathElements[MAX_RANK];
     signal input pathSiblings[MAX_RANK];
     signal input pathRight[MAX_RANK];
+    signal output valid;
 
     component frontier = UnpackRanks(MAX_TREES);
     frontier.packedRanks <== packedRanks;
@@ -48,18 +51,15 @@ template SkewMmrInclusion(MAX_TREES) {
     component live = LessThan(RANK_BITS);
     live.in[0] <== tree;
     live.in[1] <== depth;
-    live.out === 1;
 
     component fits = LessEqThan(RANK_BITS);
     fits.in[0] <== pathLen;
     fits.in[1] <== rank;
-    fits.out === 1;
 
-    // One-hot `path.len()`, so the per-step flags below are a monotone prefix and `pathLen`
-    // is bound to `0..MAX_RANK`.
+    // One-hot `path.len()`, so the per-step flags below are a monotone prefix. A proof is only
+    // valid with `pathLen` in `0..MAX_RANK`.
     component length = Decoder(MAX_RANK + 1);
     length.inp <== pathLen;
-    length.success === 1;
 
     var active[MAX_RANK];
     var suffix = 0;
@@ -98,7 +98,13 @@ template SkewMmrInclusion(MAX_TREES) {
         current[i + 1] <== step[i].out;
     }
 
-    current[MAX_RANK] === root;
+    component folds = IsEqual();
+    folds.in[0] <== current[MAX_RANK];
+    folds.in[1] <== root;
+
+    signal placed <== live.out * fits.out;
+    signal bounded <== placed * length.success;
+    valid <== bounded * folds.out;
 }
 
 /// Unpacks the 6-bit `rank`s from the `packedRanks` word of LibSkewMmr.sol.

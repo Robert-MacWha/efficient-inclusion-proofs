@@ -58,8 +58,9 @@ export function compile(name: string): Promise<WasmTester> {
 }
 
 /**
- * Whether `signals` yield a witness for `circuit`. A witness that generates but violates a
- * constraint throws, since that means the generator and the R1CS disagree.
+ * Whether `signals` prove membership in `circuit`: they yield a witness, and its `valid`
+ * output is 1. A witness that generates but violates a constraint throws, since that means the
+ * generator and the R1CS disagree.
  */
 export async function satisfies(circuit: WasmTester, signals: Input): Promise<boolean> {
   let witness;
@@ -69,7 +70,8 @@ export async function satisfies(circuit: WasmTester, signals: Input): Promise<bo
     return false;
   }
   await circuit.checkConstraints(witness);
-  return true;
+  // Wire 0 is the constant 1, and `valid` is the circuit's only output.
+  return witness[1] === 1n;
 }
 
 export function accepts(verdict: Promise<boolean>, message?: string): Promise<void> {
