@@ -1,6 +1,6 @@
 {
   "name": "@skew-mmr/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Reference TypeScript implementation of the skew-MMR accumulator",
   "license": "MIT",
   "repository": {
