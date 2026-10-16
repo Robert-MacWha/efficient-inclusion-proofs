@@ -68,7 +68,7 @@ contract SkewMmrWithHistory {
         return mmr.count;
     }
 
-    function _hash(bytes32 a, bytes32 b, bytes32 c) internal pure virtual returns (bytes32) {
+    function _hash(bytes32 a, bytes32 b, bytes32 c) internal view virtual returns (bytes32) {
         return keccak256(abi.encode(a, b, c));
     }
 }
