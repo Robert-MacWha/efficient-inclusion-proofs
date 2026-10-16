@@ -23,6 +23,10 @@ pub struct StateVar<const MAX_DEPTH: usize, F: PrimeField> {
     ranks: [FpVar<F>; MAX_DEPTH],
     depth: FpVar<F>,
     count: FpVar<F>,
+    /// `i < depth` over each tree, computed once so every [`Self::rank`] shares it.
+    populated: [Boolean<F>; MAX_DEPTH],
+    /// Whether `depth` lands in `0..=MAX_DEPTH`.
+    bounded: Boolean<F>,
 }
 
 impl<const MAX_DEPTH: usize, F: PrimeField> StateVar<MAX_DEPTH, F> {
@@ -44,22 +48,44 @@ impl<const MAX_DEPTH: usize, F: PrimeField> StateVar<MAX_DEPTH, F> {
         &self.count
     }
 
-    /// The rank of `tree`, and whether it sits below [`Self::depth`]. Where the native
-    /// [`State::rank`] would return `None`, this reports `false`.
+    /// The rank of the tree selected by the one-hot mask `tree` (see
+    /// [`crate::constraints::mask::one_hot`]), and whether it sits below [`Self::depth`].
+    /// Where the native [`State::rank`] would return `None`, this reports `false`.
     #[tracing::instrument(target = "r1cs", skip_all)]
-    pub fn rank(&self, tree: &FpVar<F>) -> Result<(FpVar<F>, Boolean<F>), SynthesisError> {
+    pub fn rank(
+        &self,
+        tree: &[Boolean<F>; MAX_DEPTH],
+    ) -> Result<(FpVar<F>, Boolean<F>), SynthesisError> {
         // A tree at or above `depth` is padding, which reads as rank 0 and would match an
         // empty path.
-        let (populated, bounded) = prefix_mask::<MAX_DEPTH, F>(&self.depth)?;
         let mut rank = FpVar::zero();
         let mut live = Boolean::FALSE;
-        for (i, populated) in populated.iter().enumerate() {
-            let hit = tree.is_eq(&FpVar::constant(F::from(i as u64)))?;
-            rank = hit.select(&self.ranks[i], &rank)?;
-            live |= &hit & populated;
+        for ((hit, rank_i), populated) in tree.iter().zip(&self.ranks).zip(&self.populated) {
+            rank = hit.select(rank_i, &rank)?;
+            live |= hit & populated;
         }
 
-        Ok((rank, live & bounded))
+        Ok((rank, live & &self.bounded))
+    }
+
+    /// Builds the state from its allocated parts, unpacking `packed_ranks` and masking
+    /// the trees below `depth`.
+    fn from_parts(
+        packed_ranks: FpVar<F>,
+        depth: FpVar<F>,
+        count: FpVar<F>,
+    ) -> Result<Self, SynthesisError> {
+        let ranks = unpack::<MAX_DEPTH, F>(&packed_ranks)?;
+        let (populated, bounded) = prefix_mask::<MAX_DEPTH, F>(&depth)?;
+
+        Ok(Self {
+            packed_ranks,
+            ranks,
+            depth,
+            count,
+            populated,
+            bounded,
+        })
     }
 }
 
@@ -84,16 +110,10 @@ impl<const MAX_DEPTH: usize, F: PrimeField> AllocVar<State<MAX_DEPTH>, F>
         }
         let packed_ranks = F::from_le_bytes_mod_order(state.packed_ranks());
         let packed_ranks = FpVar::new_variable(cs.clone(), || Ok(packed_ranks), mode)?;
-        let ranks = unpack::<MAX_DEPTH, F>(&packed_ranks)?;
         let depth = FpVar::new_variable(cs.clone(), || Ok(F::from(state.depth() as u64)), mode)?;
         let count = FpVar::new_variable(cs, || Ok(F::from(state.count())), mode)?;
 
-        Ok(Self {
-            packed_ranks,
-            ranks,
-            depth,
-            count,
-        })
+        Self::from_parts(packed_ranks, depth, count)
     }
 }
 
@@ -152,6 +172,7 @@ mod tests {
 
     use super::super::testing::{MAX_DEPTH, Mmr};
     use super::*;
+    use crate::constraints::mask::one_hot;
     use crate::testing::filled;
 
     #[test]
@@ -163,7 +184,7 @@ mod tests {
         assert_eq!(state.depth().value().unwrap(), Fr::from(mmr.depth() as u64));
         assert_eq!(state.count().value().unwrap(), Fr::from(mmr.len() as u64));
         for tree in 0..mmr.depth() {
-            let (rank, live) = state.rank(&FpVar::constant(Fr::from(tree as u64))).unwrap();
+            let (rank, live) = rank(&state, &FpVar::constant(Fr::from(tree as u64)));
             let packed = mmr.state().rank(tree).expect("a live tree");
             assert!(live.value().unwrap(), "tree {tree} is live");
             assert_eq!(rank.value().unwrap(), Fr::from(packed), "rank {tree}");
@@ -177,7 +198,7 @@ mod tests {
         let cs = ConstraintSystem::<Fr>::new_ref();
         let state = witness(&cs, &mmr);
 
-        let (_, live) = state.rank(&FpVar::zero()).unwrap();
+        let (_, live) = rank(&state, &FpVar::zero());
 
         assert_eq!(state.depth().value().unwrap(), Fr::from(0u64));
         assert_eq!(state.count().value().unwrap(), Fr::from(0u64));
@@ -192,7 +213,7 @@ mod tests {
         let state = witness(&cs, &mmr);
 
         let tree = FpVar::constant(Fr::from(mmr.depth() as u64));
-        let (_, live) = state.rank(&tree).unwrap();
+        let (_, live) = rank(&state, &tree);
 
         assert!(!live.value().unwrap());
         assert!(cs.is_satisfied().unwrap());
@@ -202,12 +223,12 @@ mod tests {
     fn rejects_a_depth_above_the_maximum() {
         let mmr: Mmr = filled(60);
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let mut state = witness(&cs, &mmr);
-        state.depth =
-            FpVar::new_witness(cs.clone(), || Ok(Fr::from(MAX_DEPTH as u64 + 1))).unwrap();
+        let state = witness(&cs, &mmr);
+        let depth = FpVar::new_witness(cs.clone(), || Ok(Fr::from(MAX_DEPTH as u64 + 1))).unwrap();
+        let state = StateVar::from_parts(state.packed_ranks, depth, state.count).unwrap();
 
         for tree in 0..MAX_DEPTH {
-            let (_, live) = state.rank(&FpVar::constant(Fr::from(tree as u64))).unwrap();
+            let (_, live) = rank(&state, &FpVar::constant(Fr::from(tree as u64)));
             assert!(!live.value().unwrap(), "tree {tree} is not live");
         }
         assert!(cs.is_satisfied().unwrap());
@@ -226,5 +247,9 @@ mod tests {
 
     fn witness(cs: &ConstraintSystemRef<Fr>, mmr: &Mmr) -> StateVar<MAX_DEPTH, Fr> {
         StateVar::new_witness(cs.clone(), || Ok(mmr.state())).unwrap()
+    }
+
+    fn rank(state: &StateVar<MAX_DEPTH, Fr>, tree: &FpVar<Fr>) -> (FpVar<Fr>, Boolean<Fr>) {
+        state.rank(&one_hot(tree).unwrap()).unwrap()
     }
 }

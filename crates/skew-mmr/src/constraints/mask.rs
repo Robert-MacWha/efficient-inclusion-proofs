@@ -23,3 +23,11 @@ pub fn prefix_mask<const N: usize, F: PrimeField>(
 
     Ok((mask, bounded))
 }
+
+/// Expands `value` into the one-hot mask `i == value` over `0..N`. The mask is all
+/// `false` when `value` falls outside `0..N`.
+pub fn one_hot<const N: usize, F: PrimeField>(
+    value: &FpVar<F>,
+) -> Result<[Boolean<F>; N], SynthesisError> {
+    try_from_fn(|i| value.is_eq(&FpVar::constant(F::from(i as u64))))
+}

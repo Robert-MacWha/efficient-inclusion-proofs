@@ -1,6 +1,6 @@
 mod array;
 pub mod hasher;
-mod mask;
+pub mod mask;
 pub mod state;
 
 use std::borrow::Borrow;
@@ -16,7 +16,12 @@ use ark_r1cs_std::{
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use crate::{
-    constraints::{array::try_from_fn, hasher::HasherGadget, mask::prefix_mask, state::StateVar},
+    constraints::{
+        array::try_from_fn,
+        hasher::HasherGadget,
+        mask::{one_hot, prefix_mask},
+        state::StateVar,
+    },
     hasher::Hasher,
     proof::{Proof, Step},
 };
@@ -24,13 +29,6 @@ use crate::{
 /// An inclusion proof for an element in a [`crate::SkewMmr`], padded to `MAX_DEPTH`.
 #[derive(Debug, Clone)]
 pub struct ProofVar<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> {
-    /// Roots of the frontier's trees. Entries above `depth` are padding.
-    pub roots: [FpVar<F>; MAX_DEPTH],
-    /// The frontier the proof is checked against.
-    pub state: StateVar<MAX_DEPTH, F>,
-    /// The proven element.
-    pub element: FpVar<F>,
-
     /// Index into `roots` and the rank bytes of `state`.
     pub tree: FpVar<F>,
     /// The children of the proven node. Ignored when it is a leaf.
@@ -52,19 +50,25 @@ pub struct StepVar<F: PrimeField> {
 }
 
 impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEPTH, F, H> {
-    /// Verifies the MMR inclusion proof, reporting whether it holds.
+    /// Verifies the MMR inclusion proof of `element` against the frontier `state` and its
+    /// tree `roots`, reporting whether it holds.
     ///
-    /// `roots` and `state` are witnesses like the rest of the proof, so they must be bound
-    /// to authenticated public inputs in the circuit.
+    /// `roots` and `state` must be bound to authenticated public inputs in the circuit.
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
     #[tracing::instrument(target = "r1cs", skip_all)]
-    pub fn verify(&self) -> Result<Boolean<F>, SynthesisError> {
+    pub fn verify(
+        &self,
+        element: &FpVar<F>,
+        state: &StateVar<MAX_DEPTH, F>,
+        roots: &[FpVar<F>; MAX_DEPTH],
+    ) -> Result<Boolean<F>, SynthesisError> {
+        let tree = one_hot::<MAX_DEPTH, F>(&self.tree)?;
+
         // `live` reports that the tree is live, so the root selected below is never padding.
-        let (rank, live) = self.state.rank(&self.tree)?;
+        let (rank, live) = state.rank(&tree)?;
         let mut root = FpVar::zero();
-        for (i, candidate) in self.roots.iter().enumerate() {
-            let hit = self.tree.is_eq(&FpVar::constant(F::from(i as u64)))?;
+        for (hit, candidate) in tree.iter().zip(roots) {
             root = hit.select(candidate, &root)?;
         }
 
@@ -79,8 +83,8 @@ impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEP
         // One step per level between the proven node and the tree root, so a node reached by
         // `L` steps in a tree of rank `r` has rank `r - L`, and is a leaf exactly when `L == r`.
         let is_leaf = self.path_len.is_eq(&rank)?;
-        let node = H::hash(&self.element, &self.children[0], &self.children[1])?;
-        let mut current = is_leaf.select(&self.element, &node)?;
+        let node = H::hash(element, &self.children[0], &self.children[1])?;
+        let mut current = is_leaf.select(element, &node)?;
         for (step, active) in self.path.iter().zip(&active) {
             current = active.select(&step.fold::<H>(&current)?, &current)?;
         }
@@ -118,11 +122,6 @@ where
         let (left, right) = proof.children.unwrap_or_default();
 
         Ok(Self {
-            roots: try_from_fn(|i| {
-                FpVar::new_variable(cs.clone(), || Ok(proof.roots[i].unwrap_or_default()), mode)
-            })?,
-            state: StateVar::new_variable(cs.clone(), || Ok(proof.state), mode)?,
-            element: FpVar::new_variable(cs.clone(), || Ok(proof.element), mode)?,
             tree: FpVar::new_variable(cs.clone(), || Ok(F::from(proof.tree as u64)), mode)?,
             children: [
                 FpVar::new_variable(cs.clone(), || Ok(left), mode)?,
@@ -243,8 +242,14 @@ mod tests {
 
     fn check(proof: &SampleProof) -> bool {
         let cs = ConstraintSystem::<Fr>::new_ref();
+        let state = StateVar::new_witness(cs.clone(), || Ok(proof.state)).unwrap();
+        let roots = try_from_fn(|i| {
+            FpVar::new_witness(cs.clone(), || Ok(proof.roots[i].unwrap_or_default()))
+        })
+        .unwrap();
+        let element = FpVar::new_witness(cs.clone(), || Ok(proof.element)).unwrap();
         let proof = ProofVar::new_witness(cs.clone(), || Ok(proof)).unwrap();
-        let valid = proof.verify().unwrap();
+        let valid = proof.verify(&element, &state, &roots).unwrap();
 
         assert!(cs.is_satisfied().unwrap());
         valid.value().unwrap()
