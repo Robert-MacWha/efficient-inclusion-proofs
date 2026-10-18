@@ -34,6 +34,19 @@ contract SkewMmrWithHistory {
         history[mmr.count % HISTORY_SIZE] = commitment;
     }
 
+    /// Appends without committing the new frontier to `history`.
+    /// @dev Follow a batch of these with `_recordHistory` so the
+    ///      final frontier is committed.
+    function _appendWithoutHistory(bytes32 element) internal {
+        mmr.append(element, _hash);
+        if (mmr.depth > MAX_DEPTH) revert LibSkewMmr.TooDeep();
+    }
+
+    /// @dev Commits the current frontier to `history`.
+    function _recordHistory() internal {
+        history[mmr.count % HISTORY_SIZE] = LibSkewMmrVerifier.currentCommitment(mmr);
+    }
+
     /// @notice Returns true if `frontier` is the frontier this MMR held at `histCount`.
     function verifyFrontier(uint256 histRanks, uint256 histDepth, uint256 histCount, bytes32[] calldata frontier)
         public

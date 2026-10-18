@@ -97,6 +97,36 @@ contract SkewMmrVerifierTest is Test {
         assert(!mmr.verifyFrontier(anchorRanks, anchorDepth, anchorCount, anchor));
     }
 
+    function test_batchCommitsTheSameFrontierAsSingleAppends() public {
+        SkewMmrSkaffold single = new SkewMmrSkaffold(MAX_DEPTH, HISTORY_SIZE);
+        for (uint256 i = 0; i < 200; i += 3) {
+            bytes32[] memory batch = _batch(i, 3);
+            mmr.appendBatch(batch);
+            for (uint256 j = 0; j < batch.length; ++j) {
+                single.append(batch[j]);
+            }
+
+            assertEq(mmr.history(mmr.count() % HISTORY_SIZE), single.history(single.count() % HISTORY_SIZE));
+            assert(mmr.verifyFrontier(mmr.packedRanks(), mmr.depth(), mmr.count(), _frontier()));
+        }
+    }
+
+    function test_batchSkipsIntermediateFrontiers() public {
+        _fill(40);
+        mmr.append(bytes32(uint256(41)));
+        uint256 midRanks = mmr.packedRanks();
+        uint256 midDepth = mmr.depth();
+        uint256 midCount = mmr.count();
+        bytes32[] memory mid = _frontier();
+
+        // Rebuild the same MMR, appending the 41st element as part of a batch.
+        mmr = new SkewMmrSkaffold(MAX_DEPTH, HISTORY_SIZE);
+        _fill(40);
+        mmr.appendBatch(_batch(40, 2));
+
+        assert(!mmr.verifyFrontier(midRanks, midDepth, midCount, mid));
+    }
+
     function test_rejectsAppendsPastMaxDepth() public {
         SkewMmrSkaffold shallow = new SkewMmrSkaffold(SHALLOW_DEPTH, HISTORY_SIZE);
 
@@ -117,6 +147,13 @@ contract SkewMmrVerifierTest is Test {
         uint256 seed = mmr.count();
         for (uint256 i = 0; i < n; ++i) {
             mmr.append(bytes32(seed + i + 1));
+        }
+    }
+
+    function _batch(uint256 start, uint256 n) internal pure returns (bytes32[] memory batch) {
+        batch = new bytes32[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            batch[i] = bytes32(start + i + 1);
         }
     }
 

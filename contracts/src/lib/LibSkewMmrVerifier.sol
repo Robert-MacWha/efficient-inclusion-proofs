@@ -38,6 +38,14 @@ library LibSkewMmrVerifier {
         return _commit(chain, packedRanks, depth, count);
     }
 
+    /// @notice The history value for the frontier this MMR holds now.
+    /// @dev The last tree's chain folds every root, so it is the top `append` returns.
+    function currentCommitment(LibSkewMmr.State storage self) internal view returns (bytes32) {
+        uint256 depth = self.depth;
+        bytes32 top = depth == 0 ? LibSkewMmr.IV : self.chains[depth - 1];
+        return _commit(top, self.packedRanks, depth, self.count);
+    }
+
     function _commit(bytes32 top, uint256 packedRanks, uint256 depth, uint256 count)
         internal
         pure
