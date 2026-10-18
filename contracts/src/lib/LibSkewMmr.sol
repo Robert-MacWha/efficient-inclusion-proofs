@@ -21,20 +21,11 @@ library LibSkewMmr {
         uint8 depth;
         uint64 count;
 
-        /// @dev The depth this MMR is capped at, never above `MAX_TREES`.
-        uint256 maxDepth;
-
         /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
         bytes32[MAX_TREES] chains;
     }
 
     error TooDeep();
-
-    /// @notice Cap the MMR at `maxDepth` trees.
-    function init(State storage self, uint256 maxDepth) internal {
-        if (maxDepth > MAX_TREES) revert TooDeep();
-        self.maxDepth = maxDepth;
-    }
 
     /// @notice Append an element to the MMR.
     /// @return top The chain folding every root of the resulting frontier.
@@ -67,7 +58,7 @@ library LibSkewMmr {
             d -= 1;
             r = _setRank(r, d, 0);
         } else {
-            if (d == self.maxDepth) revert TooDeep();
+            if (d == MAX_TREES) revert TooDeep();
 
             root = element;
             self.roots[d] = root;

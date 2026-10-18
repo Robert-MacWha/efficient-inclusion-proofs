@@ -15,17 +15,21 @@ contract SkewMmrWithHistory {
     /// @dev `history[count % HISTORY_SIZE]` commits to the frontier at `count`.
     mapping(uint256 => bytes32) public history;
     uint256 public immutable HISTORY_SIZE;
+    /// @dev The number of trees this MMR is capped at, never above `LibSkewMmr.MAX_TREES`.
+    uint256 public immutable MAX_DEPTH;
 
     error UnknownFrontier();
 
     /// @dev Caps the MMR and warms up storage with non-zero values to avoid cold SSTOREs.
     constructor(uint256 maxDepth, uint256 historySize) {
-        mmr.init(maxDepth);
+        if (maxDepth > LibSkewMmr.MAX_TREES) revert LibSkewMmr.TooDeep();
+        MAX_DEPTH = maxDepth;
         HISTORY_SIZE = historySize;
     }
 
     function _append(bytes32 element) internal {
         bytes32 commitment = LibSkewMmrVerifier.append(mmr, element, _hash);
+        if (mmr.depth > MAX_DEPTH) revert LibSkewMmr.TooDeep();
 
         history[mmr.count % HISTORY_SIZE] = commitment;
     }
@@ -42,10 +46,6 @@ contract SkewMmrWithHistory {
             return false;
         }
         return true;
-    }
-
-    function MAX_DEPTH() external view returns (uint256) {
-        return mmr.maxDepth;
     }
 
     function packedRanks() external view returns (uint256) {
