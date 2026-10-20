@@ -47,11 +47,11 @@ library LibSkewMmr {
         uint256 d = self.depth;
         uint256 tree;
         uint256 rank;
-        bytes32 root;
+        bytes32 treeRoot;
 
         if (d >= 2 && _rank(r, d - 1) == _rank(r, d - 2)) {
-            root = hash(element, self.roots[d - 1], self.roots[d - 2]);
-            self.roots[d - 2] = root;
+            treeRoot = hash(element, self.roots[d - 1], self.roots[d - 2]);
+            self.roots[d - 2] = treeRoot;
 
             tree = d - 2;
             rank = _rank(r, d - 1) + 1;
@@ -60,15 +60,15 @@ library LibSkewMmr {
         } else {
             if (d == MAX_TREES) revert TooDeep();
 
-            root = element;
-            self.roots[d] = root;
+            treeRoot = element;
+            self.roots[d] = treeRoot;
 
             tree = d;
             rank = 0;
             d += 1;
         }
 
-        top = _link(tree >= 1 ? self.chains[tree - 1] : IV, root);
+        top = _link(tree >= 1 ? self.chains[tree - 1] : IV, treeRoot);
         self.chains[tree] = top;
 
         self.packedRanks = _setRank(r, tree, rank);
@@ -90,10 +90,10 @@ library LibSkewMmr {
         return uint8(_rank(self.packedRanks, tree));
     }
 
-    function _link(bytes32 prev, bytes32 root) internal pure returns (bytes32 chain) {
+    function _link(bytes32 prev, bytes32 treeRoot) internal pure returns (bytes32 chain) {
         assembly ("memory-safe") {
             mstore(0x00, prev)
-            mstore(0x20, root)
+            mstore(0x20, treeRoot)
             chain := keccak256(0x00, 0x40)
         }
     }
