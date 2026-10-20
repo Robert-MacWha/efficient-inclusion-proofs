@@ -77,6 +77,15 @@ library LibSkewMmr {
         self.count += 1;
     }
 
+    /// @notice The commitment to the frontier this MMR holds now, as `LibSkewMmrVerifier.append`
+    ///         returns and `LibSkewMmrVerifier.frontierCommitment` recomputes.
+    /// @dev The last tree's chain folds every root.
+    function root(State storage self) internal view returns (bytes32) {
+        uint256 depth = self.depth;
+        bytes32 top = depth == 0 ? IV : self.chains[depth - 1];
+        return _commit(top, self.packedRanks, depth, self.count);
+    }
+
     function ranks(State storage self, uint256 tree) internal view returns (uint8) {
         return uint8(_rank(self.packedRanks, tree));
     }
@@ -96,5 +105,20 @@ library LibSkewMmr {
     function _setRank(uint256 r, uint256 tree, uint256 rank) internal pure returns (uint256) {
         uint256 offset = RANK_BITS * tree;
         return (r & ~(RANK_MASK << offset)) | (rank << offset);
+    }
+
+    function _commit(bytes32 top, uint256 packedRanks, uint256 depth, uint256 count)
+        internal
+        pure
+        returns (bytes32 commitment)
+    {
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, top)
+            mstore(add(ptr, 0x20), packedRanks)
+            mstore(add(ptr, 0x40), depth)
+            mstore(add(ptr, 0x60), count)
+            commitment := keccak256(ptr, 0x80)
+        }
     }
 }

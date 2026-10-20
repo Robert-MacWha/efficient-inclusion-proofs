@@ -26,6 +26,14 @@ contract SkewMmrVerifierTest is Test {
         }
     }
 
+    function test_rootMatchesEachAppendsCommitment() public {
+        assertEq(mmr.root(), keccak256(abi.encode(LibSkewMmr.IV, 0, 0, 0)));
+        for (uint256 i = 0; i < 200; ++i) {
+            mmr.append(bytes32(i + 1));
+            assertEq(mmr.root(), mmr.history(mmr.count() % HISTORY_SIZE));
+        }
+    }
+
     function test_rejectsTruncatedFrontier() public {
         _fill(40);
 

@@ -44,7 +44,7 @@ contract SkewMmrWithHistory {
 
     /// @dev Commits the current frontier to `history`.
     function _recordHistory() internal {
-        history[mmr.count % HISTORY_SIZE] = LibSkewMmrVerifier.currentCommitment(mmr);
+        history[mmr.count % HISTORY_SIZE] = mmr.root();
     }
 
     /// @notice Returns true if `frontier` is the frontier this MMR held at `histCount`.
