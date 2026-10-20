@@ -112,7 +112,9 @@ template SkewMmrInclusion(MAX_TREES) {
     // The proven node has rank `rank - pathLen`. Zeroed when the path does not fit, so a
     // non-member keeps a witness.
     component position = InsertionIndex(MAX_TREES);
-    position.sizes <== frontier.sizes;
+    for (var i = 0; i < MAX_TREES; i++) {
+        position.sizes[i] <== frontier.sizes[i];
+    }
     position.tree <== tree;
     position.provenRank <== fits.out * (rank - pathLen);
     for (var i = 0; i < MAX_RANK; i++) {
@@ -205,7 +207,9 @@ template InsertionIndex(MAX_TREES) {
     component provenBits = Num2Bits(RANK_BITS);
     provenBits.in <== provenRank;
     component provenSpan = Pow2(RANK_BITS);
-    provenSpan.bits <== provenBits.out;
+    for (var b = 0; b < RANK_BITS; b++) {
+        provenSpan.bits[b] <== provenBits.out[b];
+    }
 
     // Each ancestor is one element ahead of its children, and its right child also follows
     // the left subtree, which holds `2^(provenRank + 1 + i) - 1` elements at step `i`.
