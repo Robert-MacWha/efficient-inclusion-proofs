@@ -6,8 +6,10 @@ include "circomlib/circuits/mux1.circom";
 include "circomlib/circuits/switcher.circom";
 include "circomlib/circuits/poseidon.circom";
 
-/// Outputs a `valid` boolean when `element` is held by the accumulator described by `roots`,
-/// `packedRanks` and `depth`.
+/// Verifies that a node is included in a Skew Merkle Mountain Range (SkewMMR) 
+/// with the given `roots`, `packedRanks` and `depth`.
+/// 
+/// Returns a validity flag and the index of the proven node within its tree.
 ///
 /// They must come from the same frontier and be authenticated by the caller. Signals that are
 /// not well formed (ranks or a depth wider than their packing, a direction that is not a bit,
@@ -30,6 +32,7 @@ template SkewMmrInclusion(MAX_TREES) {
     signal input pathSiblings[MAX_RANK];
     signal input pathRight[MAX_RANK];
     signal output valid;
+    signal output index;
 
     component frontier = UnpackRanks(MAX_TREES);
     frontier.packedRanks <== packedRanks;
@@ -105,26 +108,43 @@ template SkewMmrInclusion(MAX_TREES) {
     signal placed <== live.out * fits.out;
     signal bounded <== placed * length.success;
     valid <== bounded * folds.out;
+
+    // The proven node has rank `rank - pathLen`. Zeroed when the path does not fit, so a
+    // non-member keeps a witness.
+    component position = InsertionIndex(MAX_TREES);
+    position.sizes <== frontier.sizes;
+    position.tree <== tree;
+    position.provenRank <== fits.out * (rank - pathLen);
+    for (var i = 0; i < MAX_RANK; i++) {
+        position.pathRight[i] <== pathRight[i];
+        position.active[i] <== active[i];
+    }
+    index <== position.index;
 }
 
-/// Unpacks the 6-bit `rank`s from the `packedRanks` word of LibSkewMmr.sol.
+/// Unpacks the 6-bit `rank`s and tree `sizes` from the `packedRanks` word of LibSkewMmr.sol.
 template UnpackRanks(MAX_TREES) {
     var RANK_BITS = 6;
     assert(MAX_TREES <= 42);
 
     signal input packedRanks;
     signal output ranks[MAX_TREES];
+    signal output sizes[MAX_TREES];
 
     component bits = Num2Bits(RANK_BITS * MAX_TREES);
     bits.in <== packedRanks;
 
     component rankBits[MAX_TREES];
+    component span[MAX_TREES];
     for (var i = 0; i < MAX_TREES; i++) {
         rankBits[i] = Bits2Num(RANK_BITS);
+        span[i] = Pow2(RANK_BITS);
         for (var b = 0; b < RANK_BITS; b++) {
             rankBits[i].in[b] <== bits.out[RANK_BITS * i + b];
+            span[i].bits[b] <== bits.out[RANK_BITS * i + b];
         }
         ranks[i] <== rankBits[i].out;
+        sizes[i] <== 2 * span[i].out - 1;
     }
 }
 
@@ -157,4 +177,65 @@ template FoldStep() {
     gate.s <== active;
 
     out <== gate.out;
+}
+
+/// Returns the insertion index of the given node within the SkewMMR.
+template InsertionIndex(MAX_TREES) {
+    var MAX_RANK = MAX_TREES - 1;
+    var RANK_BITS = 6;
+
+    signal input sizes[MAX_TREES];
+    signal input tree;
+    signal input provenRank;
+    signal input pathRight[MAX_RANK];
+    signal input active[MAX_RANK];
+    signal output index;
+
+    component treeAt = Decoder(MAX_TREES);
+    treeAt.inp <== tree;
+
+    var through = 0;
+    signal held[MAX_TREES];
+    for (var i = MAX_TREES - 1; i >= 0; i--) {
+        through += treeAt.out[i];
+        held[i] <== through * sizes[i];
+    }
+
+    // The proven node's subtree holds `2^(rank + 1) - 1` elements.
+    component provenBits = Num2Bits(RANK_BITS);
+    provenBits.in <== provenRank;
+    component provenSpan = Pow2(RANK_BITS);
+    provenSpan.bits <== provenBits.out;
+
+    // Each ancestor is one element ahead of its children, and its right child also follows
+    // the left subtree, which holds `2^(provenRank + 1 + i) - 1` elements at step `i`.
+    signal rightSpan[MAX_RANK];
+    signal offset[MAX_RANK];
+    for (var i = 0; i < MAX_RANK; i++) {
+        rightSpan[i] <== pathRight[i] * 2 * provenSpan.out;
+        offset[i] <== active[i] * (1 + rightSpan[i] * 2 ** i - pathRight[i]);
+    }
+
+    var elements = 0;
+    for (var i = 0; i < MAX_TREES; i++) {
+        elements += held[i];
+    }
+    var ahead = 0;
+    for (var i = 0; i < MAX_RANK; i++) {
+        ahead += offset[i];
+    }
+    index <== elements - 1 - ahead;
+}
+
+/// `2^n` for the `BITS`-bit `n` whose bits, low first, are `bits`. The bits must be binary.
+template Pow2(BITS) {
+    signal input bits[BITS];
+    signal output out;
+
+    signal acc[BITS + 1];
+    acc[0] <== 1;
+    for (var b = 0; b < BITS; b++) {
+        acc[b + 1] <== acc[b] * (1 + bits[b] * (2 ** (2 ** b) - 1));
+    }
+    out <== acc[BITS];
 }

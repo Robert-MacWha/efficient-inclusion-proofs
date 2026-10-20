@@ -3,8 +3,9 @@ import { before, describe, test } from "node:test";
 
 import type { WasmTester } from "circom_tester";
 
+import type { SkewMmr } from "../src/mmr.ts";
 import type { Proof } from "../src/proof.ts";
-import { MAX_RANK, MAX_TREES, RANK_BITS, filled, input } from "./helpers.ts";
+import { MAX_RANK, MAX_TREES, RANK_BITS, filled, input, mmr } from "./helpers.ts";
 import { accepts, compile, rejects, satisfies } from "./verifiers.ts";
 
 const FIELD =
@@ -33,6 +34,45 @@ describe("SkewMmrInclusion signals", () => {
     );
     await circuit.checkConstraints(witness);
     assert.equal(witness[1], 0n);
+  });
+
+  test("outputs the insertion index of every element", async () => {
+    const accumulator = mmr();
+    for (let i = 0; i < 40; i++) {
+      accumulator.append(BigInt(i));
+
+      for (let j = 0; j <= i; j++) {
+        const message = `element ${j} at len ${i + 1}`;
+        assert.equal(await index(circuit, accumulator, j), BigInt(j), message);
+      }
+    }
+  });
+
+  test("outputs the index of a leaf at the maximum path length", async () => {
+    const accumulator = filled(2 ** (MAX_RANK + 1) - 1);
+
+    let j = 0;
+    while (accumulator.prove(j).path.length < MAX_RANK) j++;
+
+    assert.equal(await index(circuit, accumulator, j), BigInt(j));
+  });
+
+  test("outputs the index of the root of a tree that outgrows the circuit", async () => {
+    const accumulator = filled(2 ** (MAX_RANK + 2) - 1);
+    const j = accumulator.len() - 1;
+
+    assert.equal(await index(circuit, accumulator, j), BigInt(j));
+  });
+
+  test("outputs the index of every element on a full frontier", async () => {
+    const accumulator = mmr();
+    while (accumulator.depth() < MAX_TREES) {
+      accumulator.append(BigInt(accumulator.len()));
+    }
+
+    for (let j = 0; j < accumulator.len(); j++) {
+      assert.equal(await index(circuit, accumulator, j), BigInt(j), `element ${j}`);
+    }
   });
 
   test("rejects a direction that is not a bit", async () => {
@@ -110,6 +150,20 @@ describe("SkewMmrInclusion signals", () => {
     await rejects(satisfies(circuit, forged));
   });
 });
+
+/** The `index` the circuit outputs for a valid proof of the element at `j`. */
+async function index(
+  circuit: WasmTester,
+  accumulator: SkewMmr<bigint>,
+  j: number,
+): Promise<bigint> {
+  const witness = await circuit.calculateWitness(
+    input(accumulator, accumulator.prove(j), BigInt(j)),
+  );
+  await circuit.checkConstraints(witness);
+  assert.equal(witness[1], 1n, `element ${j} is a member`);
+  return witness[2]!;
+}
 
 function mod(value: bigint): bigint {
   return ((value % FIELD) + FIELD) % FIELD;
