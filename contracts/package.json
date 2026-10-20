@@ -1,6 +1,6 @@
 {
   "name": "@skew-mmr/contracts",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Solidity implementation of the skew-MMR accumulator",
   "license": "MIT",
   "repository": {
