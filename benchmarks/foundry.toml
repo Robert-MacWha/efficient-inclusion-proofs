@@ -10,6 +10,7 @@ remappings = [
     "skew-mmr/=../contracts/src/",
     "poseidon-solidity/=node_modules/poseidon-solidity/",
     "lean-imt/=node_modules/lean-imt/",
+    "imt/=node_modules/imt/",
 ]
 fs_permissions = [{ access = "read-write", path = "./results" }]
 

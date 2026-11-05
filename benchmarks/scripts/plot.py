@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Plots `results/gas/*.csv` and `results/constraints.csv` into `results/*.svg`, and prints the
-markdown tables used in `README.md`. Run from `benchmarks/`."""
+"""Plots `results/gas/*.csv`, `results/constraints.csv` and `results/perf-js.csv` into
+`results/*.svg`, and prints the markdown tables used in `README.md`. Run from `benchmarks/`."""
 
 import csv
 import math
@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 RESULTS = Path(__file__).resolve().parent.parent / "results"
 
-SKEW, LEAN = "#2a78d6", "#eb6834"
+SKEW, LEAN, BIMT, QIMT = "#2a78d6", "#eb6834", "#1baf7a", "#6250d6"
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 BUCKET = 100
 # A fixed capacity above 10,000 members: leanIMT depth 14 (16,384), skew-MMR 13 trees (16,369).
@@ -32,6 +32,8 @@ plt.rcParams.update({
     "grid.linewidth": 0.8,
     "legend.frameon": False,
     "svg.fonttype": "none",
+    # Deterministic element ids, so re-plotting unchanged data leaves the SVGs unchanged.
+    "svg.hashsalt": "skew-mmr-benchmarks",
 })
 
 
@@ -68,12 +70,87 @@ def plot_gas() -> None:
         ax.set_ylim(bottom=0)
         ax.set_xlim(0, 11_300)
         ax.yaxis.set_major_formatter(lambda v, _: f"{v / 1000:.0f}k")
-    axes[0].set_ylabel("Insert gas (execution)")
+    axes[0].set_ylabel("Insert gas (whole transaction)")
     axes[0].legend(loc="upper left")
     fig.suptitle(f"Insert gas vs members (mean of each {BUCKET} inserts; band = min–max)",
                  x=0.01, ha="left", color=INK)
     fig.tight_layout()
     fig.savefig(RESULTS / "insert_gas.svg", metadata={"Date": None})
+
+
+# Every Poseidon insert-gas series, as (file, label, color).
+POSEIDON_GAS = [
+    ("skew-mmr-poseidon", "skew-MMR", SKEW),
+    ("leanimt-poseidon", "leanIMT", LEAN),
+    ("binary-imt-16-poseidon", "binary IMT, depth 16", BIMT),
+    ("binary-imt-32-poseidon", "binary IMT, depth 32", BIMT),
+    ("quinary-imt-7-poseidon", "quinary IMT, depth 7", QIMT),
+    ("quinary-imt-14-poseidon", "quinary IMT, depth 14", QIMT),
+]
+STEADY = (9_001, 10_000)
+
+
+def steady_mean(name: str) -> float:
+    gas = [int(row["gas"]) for row in read(RESULTS / "gas" / f"{name}.csv")]
+    window = gas[STEADY[0] - 1:STEADY[1]]
+    return sum(window) / len(window)
+
+
+def plot_gas_all() -> None:
+    fig, ax = plt.subplots(figsize=(8, 3.6))
+    labels = [label for _, label, _ in POSEIDON_GAS]
+    means = [steady_mean(name) for name, _, _ in POSEIDON_GAS]
+    ys = list(range(len(labels)))[::-1]
+    ax.barh(ys, means, color=[color for _, _, color in POSEIDON_GAS], height=0.6)
+    for y, mean in zip(ys, means):
+        ax.annotate(f"{mean / 1000:,.0f}k", (mean, y), xytext=(4, 0), textcoords="offset points",
+                    va="center", color=INK)
+    ax.set_yticks(ys, labels)
+    ax.grid(axis="y", visible=False)
+    ax.set_xlim(0, max(means) * 1.12)
+    ax.xaxis.set_major_formatter(lambda v, _: f"{v / 1000:.0f}k")
+    ax.set_xlabel(f"Mean insert gas, members {STEADY[0]:,}–{STEADY[1]:,} (whole transaction)")
+    ax.set_title("Insert gas with Poseidon, zk-kit trees vs skew-MMR", loc="left", color=INK)
+    fig.tight_layout()
+    fig.savefig(RESULTS / "insert_gas_all.svg", metadata={"Date": None})
+
+
+PERF = [
+    ("skew-mmr", "skew-MMR", SKEW),
+    ("leanimt", "leanIMT", LEAN),
+    ("binary-imt", "binary IMT", BIMT),
+    ("quinary-imt", "quinary IMT", QIMT),
+]
+
+
+def perf() -> dict[tuple[str, str], list[tuple[int, float]]]:
+    series: dict[tuple[str, str], list[tuple[int, float]]] = {}
+    for row in read(RESULTS / "perf-js.csv"):
+        series.setdefault((row["structure"], row["op"]), []).append(
+            (int(row["leaves"]), float(row["us_per_op"])))
+    return series
+
+
+def plot_perf() -> None:
+    data = perf()
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    for ax, op in zip(axes, ["insert", "prove", "verify"]):
+        for structure, label, color in PERF:
+            points = data[(structure, op)]
+            xs = [math.log2(n) for n, _ in points]
+            ys = [us for _, us in points]
+            ax.plot(xs, ys, color=color, linewidth=2, marker="o", markersize=5, label=label)
+        ax.set_yscale("log")
+        ax.set_xticks([3, 7, 10, 14], ["8", "128", "1,024", "16,384"])
+        ax.set_xlabel("Leaves")
+        ax.set_title(op.capitalize(), loc="left", color=INK)
+        ax.yaxis.set_major_formatter(lambda v, _: f"{v:g}")
+    axes[0].set_ylabel("µs per operation (log scale)")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(PERF))
+    fig.suptitle("Off-chain performance (TypeScript, poseidon-lite)", x=0.01, ha="left", color=INK)
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    fig.savefig(RESULTS / "perf_js.svg", metadata={"Date": None})
 
 
 def constraints() -> dict[str, list[dict]]:
@@ -143,7 +220,27 @@ def tables() -> None:
         cells = [f"{skew[t]:,} ({100 * (skew[t] - lean) / lean:+.0f}%)" for t in (depth - 1, depth)]
         print(f"| {depth} (2^{depth}) | {lean:,} | " + " | ".join(cells) + " |")
 
+def more_tables() -> None:
+    print()
+    print(f"| Structure | Mean insert gas, members {STEADY[0]:,}–{STEADY[1]:,} |")
+    print("| --------- | ------------------------------------- |")
+    for name, label, _ in POSEIDON_GAS:
+        print(f"| {label} | {steady_mean(name):,.0f} |")
+    print()
+    data = perf()
+    for op in ["insert", "prove", "verify"]:
+        print(f"| {op} (µs/op) | " + " | ".join(label for _, label, _ in PERF) + " |")
+        print("| --- |" + " --- |" * len(PERF))
+        for i, (n, _) in enumerate(data[("skew-mmr", op)]):
+            cells = [f"{data[(s, op)][i][1]:,.1f}" for s, _, _ in PERF]
+            print(f"| {n:,} leaves | " + " | ".join(cells) + " |")
+        print()
+
+
 if __name__ == "__main__":
+    plot_gas_all()
+    plot_perf()
+    more_tables()
     plot_gas()
     plot_constraints_vs_capacity()
     plot_constraints_vs_members()
