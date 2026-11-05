@@ -4,7 +4,7 @@ Skew-MMR compared with zk-kit's [leanIMT](https://github.com/zk-kit/zk-kit.solid
 
 **Summary:**
 
-- **Insert gas:** skew-MMR is 1.8–2.1× cheaper than leanIMT with keccak and 3–3.6× cheaper with Poseidon, and stays flat, while leanIMT's cost grows.
+- **Insert gas:** skew-MMR's cost is flat: ~52k gas with keccak and ~71k with Poseidon. LeanIMT's cost grows by ~4k (keccak) or ~12.5k (Poseidon) each time the number of members doubles, so the gap keeps widening. At 10,000 members leanIMT costs 2.1× (keccak) or 3.6× (Poseidon) as much.
 - **Proof constraints:** skew-MMR needs 5–12% more than leanIMT at the same capacity.
 - **JS insert:** skew-MMR is 10× faster than leanIMT at 16k leaves. JS verify is ~20% slower.
 
