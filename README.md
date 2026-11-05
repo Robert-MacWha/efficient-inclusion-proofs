@@ -19,6 +19,8 @@ This repo contains set commitment structures that allow a caller to cheaply prov
 
 ## Benchmarks
 
+For a comparison against leanIMT (insert gas vs members, membership-proof constraints vs capacity), see [benchmarks/](benchmarks/README.md).
+
 Measured by `contracts/test/*.gas.t.sol`.
 
 ### Hashes

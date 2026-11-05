@@ -1,0 +1,20 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib", "node_modules"]
+auto_detect_remappings = false
+allow_paths = ["../contracts"]
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "skew-mmr/=../contracts/src/",
+    "poseidon-solidity/=node_modules/poseidon-solidity/",
+    "lean-imt/=node_modules/lean-imt/",
+]
+fs_permissions = [{ access = "read-write", path = "./results" }]
+
+auto_detect_solc = false
+optimizer = true
+optimizer_runs = 1000000
+# 10k Poseidon leanIMT inserts exceed the default per-test gas limit.
+gas_limit = 100_000_000_000

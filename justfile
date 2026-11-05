@@ -14,3 +14,14 @@ publish *flags:
         echo "publishing $name@$version"
         (cd "$dir" && pnpm publish {{flags}})
     done
+
+# Benchmark skew-MMR against leanIMT (insert gas, membership constraints); see benchmarks/README.md
+bench:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd benchmarks
+    pnpm install
+    [ -d lib/forge-std ] || forge install foundry-rs/forge-std@v1.16.2 --no-git
+    forge test
+    python3 scripts/constraints.py
+    python3 scripts/plot.py

@@ -44,6 +44,7 @@
               nodejs_24
               pnpm
               just
+              (python3.withPackages (ps: [ ps.matplotlib ]))
             ];
 
             shellHook = "export FOUNDRY_SOLC=${pkgs.solc}/bin/solc";

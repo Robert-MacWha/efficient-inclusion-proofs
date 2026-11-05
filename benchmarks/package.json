@@ -1,0 +1,11 @@
+{
+  "name": "skew-mmr-benchmarks",
+  "private": true,
+  "description": "Skew-MMR vs leanIMT: insertion gas and membership-proof constraints",
+  "devDependencies": {
+    "@zk-kit/binary-merkle-root.circom": "2.0.0",
+    "lean-imt": "npm:@zk-kit/lean-imt.sol@2.0.1",
+    "circomlib": "2.0.5",
+    "poseidon-solidity": "0.0.5"
+  }
+}
