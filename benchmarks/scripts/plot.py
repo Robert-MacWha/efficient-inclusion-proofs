@@ -16,8 +16,13 @@ RESULTS = Path(__file__).resolve().parent.parent / "results"
 SKEW, LEAN, BIMT, QIMT = "#2a78d6", "#eb6834", "#1baf7a", "#6250d6"
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 BUCKET = 100
-# A fixed capacity above 10,000 members: leanIMT depth 14 (16,384), skew-MMR 13 trees (16,369).
-FIXED = {"leanimt": 14, "skew-mmr": 13}
+# Every insert is measured up to DENSE members; past that, WINDOW inserts ending at each checkpoint.
+DENSE = 10_000
+WINDOW = 1_000
+CHECKPOINTS = [50_000, 100_000, 500_000, 1_000_000]
+# A fixed capacity above 1,000,000 members: leanIMT depth 20 (1,048,576), skew-MMR 19 trees
+# (1,048,555).
+FIXED = {"leanimt": 20, "skew-mmr": 19}
 
 plt.rcParams.update({
     "font.size": 10,
@@ -42,38 +47,50 @@ def read(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def buckets(name: str):
-    """Mean, min and max insert gas over each run of `BUCKET` inserts, keyed by the last member."""
-    gas = [int(row["gas"]) for row in read(RESULTS / "gas" / f"{name}.csv")]
-    xs, mean, lo, hi = [], [], [], []
-    for end in range(BUCKET, len(gas) + 1, BUCKET):
-        window = gas[end - BUCKET:end]
-        xs.append(end)
-        mean.append(sum(window) / BUCKET)
-        lo.append(min(window))
-        hi.append(max(window))
-    return xs, mean, lo, hi, gas
+def gas(name: str) -> dict[int, int]:
+    """Measured insert gas, keyed by the member count after the insert."""
+    return {int(row["members"]): int(row["gas"]) for row in read(RESULTS / "gas" / f"{name}.csv")}
+
+
+def window(data: dict[int, int], end: int, size: int) -> list[int]:
+    return [data[n] for n in range(end - size + 1, end + 1)]
+
+
+def mean(values: list[int]) -> float:
+    return sum(values) / len(values)
 
 
 def plot_gas() -> None:
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
     for ax, hash_fn in zip(axes, ["keccak", "poseidon"]):
         for structure, label, color in [("skew-mmr", "skew-MMR", SKEW), ("leanimt", "leanIMT", LEAN)]:
-            xs, mean, lo, hi, _ = buckets(f"{structure}-{hash_fn}")
-            ax.fill_between(xs, lo, hi, color=color, alpha=0.12, linewidth=0)
-            ax.plot(xs, mean, color=color, linewidth=2, label=f"{label} (mean)")
-            ax.annotate(label, (xs[-1], mean[-1]), xytext=(6, 0), textcoords="offset points",
+            data = gas(f"{structure}-{hash_fn}")
+            ends = list(range(BUCKET, DENSE + 1, BUCKET))
+            dense = [window(data, end, BUCKET) for end in ends]
+            ax.fill_between(ends, [min(w) for w in dense], [max(w) for w in dense],
+                            color=color, alpha=0.12, linewidth=0)
+            sparse = [window(data, end, WINDOW) for end in CHECKPOINTS]
+            for end, w in zip(CHECKPOINTS, sparse):
+                ax.plot([end, end], [min(w), max(w)], color=color, alpha=0.35, linewidth=6,
+                        solid_capstyle="butt")
+            xs = ends + CHECKPOINTS
+            ys = [mean(w) for w in dense + sparse]
+            ax.plot(xs, ys, color=color, linewidth=2, label=label)
+            ax.plot(CHECKPOINTS, ys[-len(CHECKPOINTS):], color=color, linestyle="none",
+                    marker="o", markersize=5)
+            ax.annotate(label, (xs[-1], ys[-1]), xytext=(8, 0), textcoords="offset points",
                         va="center", color=INK)
+        ax.set_xscale("log")
+        ax.set_xlim(BUCKET, 3_000_000)
+        ax.set_xticks([100, 1_000, 10_000, 100_000, 1_000_000], ["100", "1k", "10k", "100k", "1M"])
         ax.set_title(f"{'Keccak' if hash_fn == 'keccak' else 'Poseidon'} node hash",
                      loc="left", color=INK)
-        ax.set_xlabel("Members after insert")
+        ax.set_xlabel("Members (log scale)")
         ax.set_ylim(bottom=0)
-        ax.set_xlim(0, 11_300)
         ax.yaxis.set_major_formatter(lambda v, _: f"{v / 1000:.0f}k")
     axes[0].set_ylabel("Insert gas (whole transaction)")
     axes[0].legend(loc="upper left")
-    fig.suptitle(f"Insert gas vs members (mean of each {BUCKET} inserts; band = min–max)",
-                 x=0.01, ha="left", color=INK)
+    fig.suptitle(f"Insert gas vs members (mean; shading = min–max)", x=0.01, ha="left", color=INK)
     fig.tight_layout()
     fig.savefig(RESULTS / "insert_gas.svg", metadata={"Date": None})
 
@@ -94,6 +111,10 @@ def perf() -> dict[tuple[str, str], list[tuple[int, float]]]:
     return series
 
 
+def short(n: int) -> str:
+    return f"{n // 1_000_000}M" if n >= 1_000_000 else f"{n // 1_000}k" if n >= 1_000 else str(n)
+
+
 def plot_perf() -> None:
     data = perf()
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
@@ -103,12 +124,17 @@ def plot_perf() -> None:
             xs = [math.log2(n) for n, _ in points]
             ys = [us for _, us in points]
             ax.plot(xs, ys, color=color, linewidth=2, marker="o", markersize=5, label=label)
-        ax.set_yscale("log")
-        ax.set_xticks([3, 7, 10, 14], ["8", "128", "1,024", "16,384"])
+        if op == "verify":
+            ax.set_ylim(bottom=0)
+            ax.yaxis.set_major_formatter(lambda v, _: f"{v:,.0f}")
+        else:
+            ax.set_yscale("log")
+            ax.yaxis.set_major_formatter(lambda v, _: f"{v:g}")
+        ticks = [1_000, 10_000, 100_000, 1_000_000]
+        ax.set_xticks([math.log2(n) for n in ticks], [short(n) for n in ticks])
         ax.set_xlabel("Leaves")
-        ax.set_title(op.capitalize(), loc="left", color=INK)
-        ax.yaxis.set_major_formatter(lambda v, _: f"{v:g}")
-    axes[0].set_ylabel("µs per operation (log scale)")
+        ax.set_title(f"{op.capitalize()}{'' if op == 'verify' else ' (log scale)'}", loc="left", color=INK)
+    axes[0].set_ylabel("µs per operation")
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=len(PERF))
     fig.suptitle("Off-chain performance (TypeScript, poseidon-lite)", x=0.01, ha="left", color=INK)
@@ -143,10 +169,10 @@ def plot_constraints_vs_capacity() -> None:
 
 def plot_constraints_vs_members() -> None:
     data = constraints()
-    members = list(range(100, 10_001, 100))
+    members = list(range(10_000, 1_000_001, 10_000))
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    for structure, label, color, size in [("skew-mmr", "skew-MMR, 13 trees", SKEW, "trees"),
-                                           ("leanimt", "leanIMT, depth 14", LEAN, "depth")]:
+    for structure, label, color in [("skew-mmr", f"skew-MMR, {FIXED['skew-mmr']} trees", SKEW),
+                                    ("leanimt", f"leanIMT, depth {FIXED['leanimt']}", LEAN)]:
         row = next(r for r in data[structure] if int(r["size"]) == FIXED[structure])
         ys = [int(row["constraints"])] * len(members)
         ax.plot(members, ys, color=color, linewidth=2, label=f"{label} (capacity {int(row['capacity']):,})")
@@ -154,8 +180,9 @@ def plot_constraints_vs_members() -> None:
                     va="center", color=INK)
     ax.set_xlabel("Members")
     ax.set_ylabel("Constraints (circom --O2)")
-    ax.set_xlim(0, 11_000)
-    ax.set_ylim(0, 4_500)
+    ax.set_xlim(0, 1_100_000)
+    ax.set_ylim(0, 6_500)
+    ax.xaxis.set_major_formatter(lambda v, _: short(int(v)))
     ax.set_title("Membership-proof constraints vs members, fixed capacity", loc="left", color=INK)
     ax.legend(loc="lower right")
     fig.tight_layout()
@@ -165,12 +192,11 @@ def plot_constraints_vs_members() -> None:
 def tables() -> None:
     print("| Members | skew-MMR keccak | leanIMT keccak | skew-MMR Poseidon | leanIMT Poseidon |")
     print("| ------- | --------------- | -------------- | ----------------- | ---------------- |")
-    series = {name: buckets(name) for name in
-              ["skew-mmr-keccak", "leanimt-keccak", "skew-mmr-poseidon", "leanimt-poseidon"]}
-    for members in [100, 1_000, 2_500, 5_000, 7_500, 10_000]:
-        i = members // BUCKET - 1
-        cells = [f"{round(s[1][i]):,}" for s in series.values()]
-        print(f"| {members:,} | " + " | ".join(cells) + " |")
+    series = [gas(name) for name in
+              ["skew-mmr-keccak", "leanimt-keccak", "skew-mmr-poseidon", "leanimt-poseidon"]]
+    for members in [1_000, DENSE] + CHECKPOINTS:
+        cells = [f"{mean(window(data, members, WINDOW)):,.0f}" for data in series]
+        print(f"| {short(members)} | " + " | ".join(cells) + " |")
     print()
     # A skew-MMR with `d - 1` trees holds 2^d - d - 1 members, the same capacity as a depth-`d`
     # leanIMT to within `d + 1`.

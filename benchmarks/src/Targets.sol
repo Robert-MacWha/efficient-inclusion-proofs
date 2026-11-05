@@ -10,14 +10,24 @@ import {LeanImtKeccakLib} from "./LeanImtKeccakLib.sol";
 /// @dev Common entry point so the benchmark can drive every structure the same way.
 interface IInsert {
     function insert(uint256 element) external;
+
+    /// @dev Inserts `first, first + 1, ..., first + count - 1` in one call. Only used to reach a
+    ///      large size quickly; it leaves the same state as inserting them one by one.
+    function fill(uint256 first, uint256 count) external;
 }
 
 /// @notice `SkewMmrWithHistory` as shipped: keccak node hash, frontier committed to a history ring.
 contract SkewMmrKeccak is SkewMmrWithHistory, IInsert {
     constructor(uint256 maxDepth, uint256 historySize) SkewMmrWithHistory(maxDepth, historySize) {}
 
-    function insert(uint256 element) external {
+    function insert(uint256 element) public {
         _append(bytes32(element));
+    }
+
+    function fill(uint256 first, uint256 count) external {
+        for (uint256 i = 0; i < count; ++i) {
+            insert(first + i);
+        }
     }
 }
 
@@ -37,8 +47,14 @@ contract LeanImtPoseidon is IInsert {
 
     LeanIMTData internal tree;
 
-    function insert(uint256 leaf) external {
+    function insert(uint256 leaf) public {
         tree._insert(leaf);
+    }
+
+    function fill(uint256 first, uint256 count) external {
+        for (uint256 i = 0; i < count; ++i) {
+            insert(first + i);
+        }
     }
 
     function root() external view returns (uint256) {
@@ -52,8 +68,14 @@ contract LeanImtKeccak is IInsert {
 
     LeanIMTData internal tree;
 
-    function insert(uint256 leaf) external {
+    function insert(uint256 leaf) public {
         tree._insert(leaf);
+    }
+
+    function fill(uint256 first, uint256 count) external {
+        for (uint256 i = 0; i < count; ++i) {
+            insert(first + i);
+        }
     }
 }
 
