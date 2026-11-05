@@ -20,9 +20,6 @@ importers:
       circomlib:
         specifier: 2.0.5
         version: 2.0.5
-      imt:
-        specifier: npm:@zk-kit/imt.sol@2.0.0-beta.12
-        version: '@zk-kit/imt.sol@2.0.0-beta.12'
       lean-imt:
         specifier: npm:@zk-kit/lean-imt.sol@2.0.1
         version: '@zk-kit/lean-imt.sol@2.0.1'
@@ -50,9 +47,6 @@ packages:
 
   '@zk-kit/binary-merkle-root.circom@2.0.0':
     resolution: {integrity: sha512-YaOmt1tq9mGwuQmk6ijlNbBRT71dxZciyuGOaNyL4eyosOeQbiM3u0WFDWbaHaKonpYupDn2Z5gUDHy0dtH0uQ==}
-
-  '@zk-kit/imt.sol@2.0.0-beta.12':
-    resolution: {integrity: sha512-kKgopVO6zlfSiQgv3X9WykaCeyb8jGtthWGqdo1ZD7fY1bH8A7BWhhWxtoCuU5mPEgRbamw1cAoUynuLoEULsg==}
 
   '@zk-kit/imt@2.0.0-beta.8':
     resolution: {integrity: sha512-E6woWWhX+NaDZuB6x932DJ5OACN9zsZZLurcUATyFH6SU+bEn5AX4sW6jfVIAQ1fnKsNOG0qHJtlw3ivwbOmWQ==}
@@ -129,10 +123,6 @@ snapshots:
   '@zk-kit/binary-merkle-root.circom@2.0.0':
     dependencies:
       circomlib: 2.0.5
-
-  '@zk-kit/imt.sol@2.0.0-beta.12':
-    dependencies:
-      poseidon-solidity: 0.0.5
 
   '@zk-kit/imt@2.0.0-beta.8':
     dependencies:

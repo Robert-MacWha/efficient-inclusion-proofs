@@ -7,7 +7,6 @@
     "@zk-kit/imt": "2.0.0-beta.8",
     "@zk-kit/lean-imt": "2.2.5",
     "circomlib": "2.0.5",
-    "imt": "npm:@zk-kit/imt.sol@2.0.0-beta.12",
     "lean-imt": "npm:@zk-kit/lean-imt.sol@2.0.1",
     "poseidon-lite": "0.3.0",
     "poseidon-solidity": "0.0.5"

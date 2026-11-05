@@ -3,8 +3,6 @@ pragma solidity ^0.8.33;
 
 import {SkewMmrWithHistory} from "skew-mmr/SkewMmrWithHistory.sol";
 import {InternalLeanIMT, LeanIMTData} from "lean-imt/InternalLeanIMT.sol";
-import {InternalBinaryIMT, BinaryIMTData} from "imt/internal/InternalBinaryIMT.sol";
-import {InternalQuinaryIMT, QuinaryIMTData} from "imt/internal/InternalQuinaryIMT.sol";
 import {PoseidonT4} from "poseidon-solidity/PoseidonT4.sol";
 
 import {LeanImtKeccakLib} from "./LeanImtKeccakLib.sol";
@@ -59,34 +57,3 @@ contract LeanImtKeccak is IInsert {
     }
 }
 
-/// @notice zk-kit's `InternalBinaryIMT` (`@zk-kit/imt.sol@2.0.0-beta.12`), unmodified: a fixed-depth
-///         binary tree padded with zeroes, 2-input Poseidon. Initialised as zk-kit's tests do.
-contract BinaryImtPoseidon is IInsert {
-    using InternalBinaryIMT for BinaryIMTData;
-
-    BinaryIMTData internal tree;
-
-    constructor(uint256 depth) {
-        tree._init(depth, 0);
-    }
-
-    function insert(uint256 leaf) external {
-        tree._insert(leaf);
-    }
-}
-
-/// @notice zk-kit's `InternalQuinaryIMT`, unmodified: a fixed-depth 5-ary tree padded with zeroes,
-///         5-input Poseidon.
-contract QuinaryImtPoseidon is IInsert {
-    using InternalQuinaryIMT for QuinaryIMTData;
-
-    QuinaryIMTData internal tree;
-
-    constructor(uint256 depth) {
-        tree._init(depth, 0);
-    }
-
-    function insert(uint256 leaf) external {
-        tree._insert(leaf);
-    }
-}

@@ -8,9 +8,7 @@ import {
     SkewMmrKeccak,
     SkewMmrPoseidon,
     LeanImtKeccak,
-    LeanImtPoseidon,
-    BinaryImtPoseidon,
-    QuinaryImtPoseidon
+    LeanImtPoseidon
 } from "../src/Targets.sol";
 
 /// @dev Records the gas of every single insert into an initially empty structure, writing
@@ -45,21 +43,6 @@ contract InsertGasBench is Test {
         run("leanimt-poseidon", new LeanImtPoseidon());
     }
 
-    function test_binaryImt16() public {
-        run("binary-imt-16-poseidon", new BinaryImtPoseidon(16));
-    }
-
-    function test_binaryImt32() public {
-        run("binary-imt-32-poseidon", new BinaryImtPoseidon(32));
-    }
-
-    function test_quinaryImt7() public {
-        run("quinary-imt-7-poseidon", new QuinaryImtPoseidon(7));
-    }
-
-    function test_quinaryImt14() public {
-        run("quinary-imt-14-poseidon", new QuinaryImtPoseidon(14));
-    }
 
     function run(string memory name, IInsert target) internal {
         string memory path = string.concat("results/gas/", name, ".csv");

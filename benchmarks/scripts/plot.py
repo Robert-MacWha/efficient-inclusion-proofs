@@ -78,43 +78,6 @@ def plot_gas() -> None:
     fig.savefig(RESULTS / "insert_gas.svg", metadata={"Date": None})
 
 
-# Every Poseidon insert-gas series, as (file, label, color).
-POSEIDON_GAS = [
-    ("skew-mmr-poseidon", "skew-MMR", SKEW),
-    ("leanimt-poseidon", "leanIMT", LEAN),
-    ("binary-imt-16-poseidon", "binary IMT, depth 16", BIMT),
-    ("binary-imt-32-poseidon", "binary IMT, depth 32", BIMT),
-    ("quinary-imt-7-poseidon", "quinary IMT, depth 7", QIMT),
-    ("quinary-imt-14-poseidon", "quinary IMT, depth 14", QIMT),
-]
-STEADY = (9_001, 10_000)
-
-
-def steady_mean(name: str) -> float:
-    gas = [int(row["gas"]) for row in read(RESULTS / "gas" / f"{name}.csv")]
-    window = gas[STEADY[0] - 1:STEADY[1]]
-    return sum(window) / len(window)
-
-
-def plot_gas_all() -> None:
-    fig, ax = plt.subplots(figsize=(8, 3.6))
-    labels = [label for _, label, _ in POSEIDON_GAS]
-    means = [steady_mean(name) for name, _, _ in POSEIDON_GAS]
-    ys = list(range(len(labels)))[::-1]
-    ax.barh(ys, means, color=[color for _, _, color in POSEIDON_GAS], height=0.6)
-    for y, mean in zip(ys, means):
-        ax.annotate(f"{mean / 1000:,.0f}k", (mean, y), xytext=(4, 0), textcoords="offset points",
-                    va="center", color=INK)
-    ax.set_yticks(ys, labels)
-    ax.grid(axis="y", visible=False)
-    ax.set_xlim(0, max(means) * 1.12)
-    ax.xaxis.set_major_formatter(lambda v, _: f"{v / 1000:.0f}k")
-    ax.set_xlabel(f"Mean insert gas, members {STEADY[0]:,}–{STEADY[1]:,} (whole transaction)")
-    ax.set_title("Insert gas with Poseidon, zk-kit trees vs skew-MMR", loc="left", color=INK)
-    fig.tight_layout()
-    fig.savefig(RESULTS / "insert_gas_all.svg", metadata={"Date": None})
-
-
 PERF = [
     ("skew-mmr", "skew-MMR", SKEW),
     ("leanimt", "leanIMT", LEAN),
@@ -209,23 +172,18 @@ def tables() -> None:
         cells = [f"{round(s[1][i]):,}" for s in series.values()]
         print(f"| {members:,} | " + " | ".join(cells) + " |")
     print()
-    # A skew-MMR with `d` trees holds 2^(d+1) - d - 2, so `d - 1` trees fall `d + 1` members short
-    # of a depth-`d` leanIMT and `d` trees hold about twice as many.
-    print("| leanIMT depth | leanIMT constraints | skew-MMR, depth - 1 trees | skew-MMR, depth trees |")
-    print("| ------------- | ------------------- | ------------------------- | --------------------- |")
+    # A skew-MMR with `d - 1` trees holds 2^d - d - 1 members, the same capacity as a depth-`d`
+    # leanIMT to within `d + 1`.
+    print("| Capacity | leanIMT | skew-MMR | Difference |")
+    print("| -------- | ------- | -------- | ---------- |")
     data = constraints()
     skew = {int(r["size"]): int(r["constraints"]) for r in data["skew-mmr"]}
     for depth in [10, 16, 20, 24, 32]:
         lean = next(int(r["constraints"]) for r in data["leanimt"] if int(r["size"]) == depth)
-        cells = [f"{skew[t]:,} ({100 * (skew[t] - lean) / lean:+.0f}%)" for t in (depth - 1, depth)]
-        print(f"| {depth} (2^{depth}) | {lean:,} | " + " | ".join(cells) + " |")
+        ours = skew[depth - 1]
+        print(f"| 2^{depth} | {lean:,} | {ours:,} | {100 * (ours - lean) / lean:+.0f}% |")
 
 def more_tables() -> None:
-    print()
-    print(f"| Structure | Mean insert gas, members {STEADY[0]:,}–{STEADY[1]:,} |")
-    print("| --------- | ------------------------------------- |")
-    for name, label, _ in POSEIDON_GAS:
-        print(f"| {label} | {steady_mean(name):,.0f} |")
     print()
     data = perf()
     for op in ["insert", "prove", "verify"]:
@@ -238,7 +196,6 @@ def more_tables() -> None:
 
 
 if __name__ == "__main__":
-    plot_gas_all()
     plot_perf()
     more_tables()
     plot_gas()

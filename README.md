@@ -19,7 +19,7 @@ This repo contains set commitment structures that allow a caller to cheaply prov
 
 ## Benchmarks
 
-For a comparison against zk-kit's leanIMT and binary/quinary IMT (insert gas, membership-proof constraints, off-chain performance), see [benchmarks/](benchmarks/README.md).
+For a comparison with zk-kit's leanIMT and IMT (insert gas, proof constraints, JS performance), see [benchmarks/](benchmarks/README.md).
 
 Measured by `contracts/test/*.gas.t.sol`.
 
