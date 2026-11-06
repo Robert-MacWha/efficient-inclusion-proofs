@@ -54,13 +54,7 @@ contract LeanImtComparisonGasTest is Test {
 
         for (uint256 n = 1; n <= MEMBERS; ++n) {
             target.insert(n);
-            vm.writeLine(path, string.concat(vm.toString(n), ",", vm.toString(lastCallGas())));
+            vm.writeLine(path, string.concat(vm.toString(n), ",", vm.toString(vm.lastCallGas().gasTotalUsed)));
         }
-    }
-
-    /// `vm.lastCallGas().gasTotalUsed`, read directly so it works with any forge-std version.
-    function lastCallGas() internal view returns (uint256 used) {
-        (, bytes memory gas) = address(vm).staticcall(abi.encodeWithSignature("lastCallGas()"));
-        (, used) = abi.decode(gas, (uint256, uint256));
     }
 }

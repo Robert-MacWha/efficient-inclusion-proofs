@@ -1,6 +1,8 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    # Foundry only: nixos-26.05 ships forge 1.7.1, which predates the latest forge-std.
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -12,6 +14,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-unstable,
       flake-utils,
       rust-overlay,
     }:
@@ -22,6 +25,7 @@
           inherit system;
           overlays = [ rust-overlay.overlays.default ];
         };
+        unstable = nixpkgs-unstable.legacyPackages.${system};
 
         rustToolchain = pkgs.rust-bin.stable."1.98.0".default.override {
           extensions = [
@@ -37,7 +41,7 @@
             packages = with pkgs; [
               rustToolchain
               rust-analyzer
-              foundry
+              unstable.foundry
               solc
 
               circom
