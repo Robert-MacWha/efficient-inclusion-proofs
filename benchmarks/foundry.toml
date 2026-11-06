@@ -16,8 +16,3 @@ fs_permissions = [{ access = "read-write", path = "./results" }]
 auto_detect_solc = false
 optimizer = true
 optimizer_runs = 1000000
-# Prague has no per-transaction gas cap (EIP-7825, Osaka), so the bulk fill can use large
-# transactions. Every opcode the measured inserts use costs the same in both.
-evm_version = "prague"
-# 1M Poseidon leanIMT inserts take ~3e11 gas in one test.
-gas_limit = 10_000_000_000_000

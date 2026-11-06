@@ -9,7 +9,8 @@
     "circomlib": "2.0.5",
     "lean-imt": "npm:@zk-kit/lean-imt.sol@2.0.1",
     "poseidon-lite": "0.3.0",
-    "poseidon-solidity": "0.0.5"
+    "poseidon-solidity": "0.0.5",
+    "tinybench": "2.9.0"
   },
   "type": "module"
 }

@@ -29,6 +29,9 @@ importers:
       poseidon-solidity:
         specifier: 0.0.5
         version: 0.0.5
+      tinybench:
+        specifier: 2.9.0
+        version: 2.9.0
 
 packages:
 
@@ -87,6 +90,9 @@ packages:
 
   poseidon-solidity@0.0.5:
     resolution: {integrity: sha512-NzrvSwHzvZgT4hvg2GyGqeR+UOU/eLSEt4wAoXEua+VaR7NTKKwx1X9bPlh1VMBEVEno+IWvkRBbidFGzTeAqQ==}
+
+  tinybench@2.9.0:
+    resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
 
   tslib@2.7.0:
     resolution: {integrity: sha512-gLXCKdN1/j47AiHiOkJN69hJmcbGTHI0ImLmbYLHykhgeN0jVGola9yVjFgzCUklsZQMW55o+dW7IXv3RCXDzA==}
@@ -180,6 +186,8 @@ snapshots:
   poseidon-lite@0.3.0: {}
 
   poseidon-solidity@0.0.5: {}
+
+  tinybench@2.9.0: {}
 
   tslib@2.7.0: {}
 

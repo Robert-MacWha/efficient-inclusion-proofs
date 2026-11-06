@@ -1,141 +1,248 @@
 /**
- * Off-chain performance of skew-MMR against zk-kit's trees, following
- * https://github.com/zk-kit/zk-kit/tree/main/benchmarks: the same libraries (`@zk-kit/imt`,
- * `@zk-kit/lean-imt`), the same hash (`poseidon-lite`, the original circomlib Poseidon), and the
- * same operations (insert, generate proofs, verify proofs). Update and delete are left out because
- * skew-MMR is append-only.
+ * Off-chain performance of skew-MMR against zk-kit's IMT and LeanIMT, reproducing the Node.js
+ * benchmarks of the LeanIMT paper (https://github.com/zk-kit/zk-kit/tree/main/papers/leanimt),
+ * which come from https://github.com/vplasencia/imt-benchmarks (`server/src/insert.ts` and
+ * `server/src/all-functions.ts`):
  *
- * For each size, every tree is first built to that size (zk-kit's trees through their bulk
- * constructors, which only exist to make setup fast). Then it times:
- *   - insert: `OPS` more leaves, one `insert` call each;
- *   - prove:  `OPS` random leaves;
- *   - verify: those proofs.
- * and reports µs per operation (the median over repeated runs for prove and verify).
+ * - tinybench, `time: 0`, no warmup, the paper's iteration counts (1,000 for insert, 100 for the
+ *   other functions) and the paper's hooks. Every iteration adds one member to a growing tree,
+ *   and the IMT is rebuilt one level deeper, untimed, whenever it is full.
+ * - `poseidon-lite`: `poseidon2` for IMT and LeanIMT, `poseidon3` for skew-MMR.
  *
- * Writes `results/perf-js.csv`. Run from `benchmarks/` with Node >= 23.6 (type stripping).
+ * Differences:
+ * - Skew-MMR is added. Update and Remove are left out because skew-MMR is append-only.
+ * - LeanIMT comes from `@zk-kit/lean-imt` (what Semaphore uses) rather than `@zk-kit/imt`, which
+ *   no longer ships it.
+ * - tinybench sorts `result.samples` in place, so the paper's "Insert vs Members" line is the
+ *   sorted per-insert times. Here each insert is also timed in order, so `perf-js-insert.csv`
+ *   really is time against the number of members.
+ *
+ * Writes `results/perf-js-insert.csv` and `results/perf-js-functions.csv`. Run from
+ * `benchmarks/` with Node >= 23.6 (type stripping).
  */
 import { writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 
-import { IMT } from "@zk-kit/imt";
-import { LeanIMT } from "@zk-kit/lean-imt";
-import { poseidon2, poseidon5 } from "poseidon-lite";
+import { IMT, type IMTMerkleProof } from "@zk-kit/imt";
+import { LeanIMT, type LeanIMTMerkleProof } from "@zk-kit/lean-imt";
+import { poseidon2 } from "poseidon-lite";
+import { Bench } from "tinybench";
 
-import { SkewMmr, poseidonHasher, verify } from "../../packages/src/index.ts";
+import { SkewMmr, poseidonHasher, verify, type Proof } from "../../packages/src/index.ts";
 
-const SIZES = process.env.SIZES?.split(",").map(Number) ?? [1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000];
-/** Operations timed per size. */
-const OPS = 1_000;
-/** Minimum wall time and run count for the repeated (prove, verify) measurements. */
-const MIN_MS = 200;
-const MIN_RUNS = 3;
+const INSERT_ITERATIONS = 1_000;
+const FUNCTION_ITERATIONS = 100;
 
-/** One structure under test. */
-interface Subject<T, P> {
-  name: string;
-  /** A tree holding `leaves`, with room for `OPS` more. */
-  build(leaves: bigint[]): T;
-  insert(tree: T, leaf: bigint): void;
-  prove(tree: T, index: number): P;
-  verify(tree: T, proof: P, leaf: bigint): boolean;
+const imtZeroValue = 0;
+const imtArity = 2;
+const leanIMTHash = (a: bigint, b: bigint) => poseidon2([a, b]);
+const newSkewMmr = () => new SkewMmr(poseidonHasher, 64);
+
+/** The paper's IMT hook: grow the depth, untimed, when `incoming` more leaves would not fit. */
+function fitImt(imt: IMT, depth: number, incoming: number): [IMT, number] {
+  if (Math.log2(imt.leaves.length + incoming) > depth) {
+    depth += 1;
+    imt = new IMT(poseidon2, depth, imtZeroValue, imtArity, imt.leaves);
+  }
+  return [imt, depth];
 }
 
-/** zk-kit's fixed-depth IMT, at the smallest depth that fits `leaves` plus `OPS` inserts. */
-function imt(name: string, arity: number, hash: (nodes: bigint[]) => bigint): Subject<IMT, ReturnType<IMT["createProof"]>> {
-  return {
-    name,
-    build(leaves) {
-      const depth = Math.ceil(Math.log(leaves.length + OPS) / Math.log(arity) - 1e-9);
-      // The constructor keeps the array it is given, so hand it a copy.
-      return new IMT(hash as never, depth, 0, arity, leaves.slice());
-    },
-    insert: (tree, leaf) => tree.insert(leaf),
-    prove: (tree, index) => tree.createProof(index),
-    verify: (tree, proof) => tree.verifyProof(proof),
-  };
-}
+const results = (bench: Bench) =>
+  bench.tasks.map((task) => ({ name: task.name, mean: task.result!.mean, samples: task.result!.samples.length }));
 
-const binaryImt = imt("binary-imt", 2, poseidon2);
-const quinaryImt = imt("quinary-imt", 5, poseidon5);
-
-const leanImt: Subject<LeanIMT<bigint>, ReturnType<LeanIMT<bigint>["generateProof"]>> = {
-  name: "leanimt",
-  build: (leaves) => new LeanIMT<bigint>((a, b) => poseidon2([a, b]), leaves.slice()),
-  insert: (tree, leaf) => tree.insert(leaf),
-  prove: (tree, index) => tree.generateProof(index),
-  verify: (tree, proof) => tree.verifyProof(proof),
-};
-
-const skewMmr: Subject<SkewMmr<bigint>, ReturnType<SkewMmr<bigint>["prove"]>> = {
-  name: "skew-mmr",
-  build(leaves) {
-    const mmr = new SkewMmr(poseidonHasher, 64);
-    for (const leaf of leaves) mmr.append(leaf);
-    return mmr;
-  },
-  insert: (tree, leaf) => tree.append(leaf),
-  prove: (tree, index) => tree.prove(index),
-  // The verifier is handed the frontier; reading it is not part of verification.
-  verify: (tree, proof, leaf) => verify(poseidonHasher, proof, frontier.roots, frontier.ranks, leaf),
-};
-/** The frontier of the skew-MMR being verified against, read once per size. */
-let frontier: { roots: bigint[]; ranks: number[] } = { roots: [], ranks: [] };
-
-/** Median milliseconds per call of `batch`, repeated for at least `MIN_MS` and `MIN_RUNS`. */
-function time(batch: () => void): number {
-  const runs: number[] = [];
-  const start = performance.now();
-  while (runs.length < MIN_RUNS || performance.now() - start < MIN_MS) {
+/** `server/src/insert.ts`: 1,000 single inserts into one growing tree. */
+async function insertBenchmark() {
+  const bench = new Bench({ time: 0, iterations: INSERT_ITERATIONS });
+  const ordered: Record<string, number[]> = { "binary-imt": [], leanimt: [], "skew-mmr": [] };
+  const timed = (name: string, f: () => void) => async () => {
     const t = performance.now();
-    batch();
-    runs.push(performance.now() - t);
-  }
-  runs.sort((a, b) => a - b);
-  return runs[Math.floor(runs.length / 2)]!;
-}
+    f();
+    ordered[name]!.push(performance.now() - t);
+  };
 
-/** `count` distinct pseudo-random indices below `n`, the same for every structure. */
-function sample(n: number, count: number): number[] {
-  let seed = 0x2545f491;
-  const picked = new Set<number>();
-  while (picked.size < Math.min(count, n)) {
-    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
-    picked.add(seed % n);
-  }
-  return [...picked];
-}
+  let imtDepth = 0;
+  let imt: IMT;
+  let leanIMT: LeanIMT<bigint>;
+  let mmr: SkewMmr<bigint>;
 
-const rows = ["structure,leaves,op,us_per_op"];
-const log = (name: string, n: number, op: string, us: number) => {
-  rows.push(`${name},${n},${op},${us.toFixed(3)}`);
-  console.log(`${name.padEnd(12)} ${String(n).padStart(8)} leaves  ${op.padEnd(6)} ${us.toFixed(2).padStart(9)} µs/op`);
-};
-
-const all = Array.from({ length: SIZES.at(-1)! + OPS }, (_, i) => BigInt(i + 1));
-for (const n of SIZES) {
-  const leaves = all.slice(0, n);
-  const extra = all.slice(n, n + OPS);
-  const indices = sample(n, OPS);
-
-  for (const subject of [binaryImt, quinaryImt, leanImt, skewMmr] as Subject<any, any>[]) {
-    const tree = subject.build(leaves);
-    if (subject === skewMmr) frontier = { roots: tree.roots(), ranks: tree.ranks() };
-
-    const proofs = indices.map((index) => subject.prove(tree, index));
-    proofs.forEach((proof, i) => {
-      if (!subject.verify(tree, proof, leaves[indices[i]!]!)) {
-        throw new Error(`${subject.name}: proof of ${indices[i]} rejected`);
-      }
+  bench
+    .add("IMT - Insert", timed("binary-imt", () => imt.insert(1n)), {
+      beforeAll: () => {
+        imt = new IMT(poseidon2, imtDepth, imtZeroValue, imtArity);
+      },
+      beforeEach: () => {
+        [imt, imtDepth] = fitImt(imt, imtDepth, 1);
+      },
+    })
+    .add("LeanIMT - Insert", timed("leanimt", () => leanIMT.insert(1n)), {
+      beforeAll: () => {
+        leanIMT = new LeanIMT(leanIMTHash);
+      },
+    })
+    .add("SkewMMR - Insert", timed("skew-mmr", () => mmr.append(1n)), {
+      beforeAll: () => {
+        mmr = newSkewMmr();
+      },
     });
 
-    log(subject.name, n, "prove", (time(() => indices.forEach((i) => subject.prove(tree, i))) * 1000) / OPS);
-    log(subject.name, n, "verify", (time(() => proofs.forEach((p, i) => subject.verify(tree, p, leaves[indices[i]!]!))) * 1000) / OPS);
+  await bench.run();
+  console.table(results(bench));
 
-    // Inserting changes the tree, so this one is timed once, last.
-    const t = performance.now();
-    for (const leaf of extra) subject.insert(tree, leaf);
-    log(subject.name, n, "insert", ((performance.now() - t) * 1000) / OPS);
+  const rows = ["members,binary-imt,leanimt,skew-mmr"];
+  for (let i = 0; i < INSERT_ITERATIONS; i++) {
+    rows.push([i + 1, ...Object.values(ordered).map((times) => times[i]!.toFixed(5))].join(","));
   }
+  writeFileSync(new URL("../results/perf-js-insert.csv", import.meta.url), rows.join("\n") + "\n");
 }
 
-writeFileSync(process.env.OUT ?? new URL("../results/perf-js.csv", import.meta.url), rows.join("\n") + "\n");
+/** `server/src/all-functions.ts`, minus Update and Remove: 100 iterations of each function. */
+async function functionsBenchmark() {
+  const bench = new Bench({ time: 0, iterations: FUNCTION_ITERATIONS });
+
+  let imtDepth: number;
+  let imt: IMT;
+  let leanIMT: LeanIMT<bigint>;
+  let mmr: SkewMmr<bigint>;
+  let index: number;
+  let members: bigint[];
+  let imtProof: IMTMerkleProof;
+  let leanProof: LeanIMTMerkleProof<bigint>;
+  let skewProof: Proof<bigint>;
+  let roots: bigint[];
+  let ranks: number[];
+
+  const freshImt = () => {
+    imtDepth = 1;
+    imt = new IMT(poseidon2, imtDepth, imtZeroValue, imtArity);
+  };
+  const growImt = () => {
+    [imt, imtDepth] = fitImt(imt, imtDepth, 1);
+    imt.insert(1n);
+    index = Math.floor(imt.leaves.length / 2);
+  };
+  const growLean = () => {
+    leanIMT.insert(1n);
+    index = Math.floor(leanIMT.size / 2);
+  };
+  const growSkew = () => {
+    mmr.append(1n);
+    index = Math.floor(mmr.len() / 2);
+  };
+
+  bench
+    // Insert
+    .add("IMT - Insert", async () => imt.insert(1n), {
+      beforeAll: freshImt,
+      beforeEach: () => {
+        [imt, imtDepth] = fitImt(imt, imtDepth, 1);
+      },
+    })
+    .add("LeanIMT - Insert", async () => leanIMT.insert(1n), {
+      beforeAll: () => {
+        leanIMT = new LeanIMT(leanIMTHash);
+      },
+    })
+    .add("SkewMMR - Insert", async () => mmr.append(1n), {
+      beforeAll: () => {
+        mmr = newSkewMmr();
+      },
+    })
+    // InsertMany: the batch grows by one member each iteration. Only LeanIMT has a batch insert.
+    .add(
+      "IMT - InsertMany",
+      async () => {
+        for (const member of members) imt.insert(member);
+      },
+      {
+        beforeAll: () => {
+          freshImt();
+          members = [];
+        },
+        beforeEach: () => {
+          members.push(1n);
+          [imt, imtDepth] = fitImt(imt, imtDepth, members.length);
+        },
+      },
+    )
+    .add("LeanIMT - InsertMany", async () => leanIMT.insertMany(members), {
+      beforeAll: () => {
+        leanIMT = new LeanIMT(leanIMTHash);
+        members = [];
+      },
+      beforeEach: () => {
+        members.push(1n);
+      },
+    })
+    .add(
+      "SkewMMR - InsertMany",
+      async () => {
+        for (const member of members) mmr.append(member);
+      },
+      {
+        beforeAll: () => {
+          mmr = newSkewMmr();
+          members = [];
+        },
+        beforeEach: () => {
+          members.push(1n);
+        },
+      },
+    )
+    // GenerateProof
+    .add("IMT - GenerateProof", async () => imt.createProof(index), { beforeAll: freshImt, beforeEach: growImt })
+    .add("LeanIMT - GenerateProof", async () => leanIMT.generateProof(index), {
+      beforeAll: () => {
+        leanIMT = new LeanIMT(leanIMTHash);
+      },
+      beforeEach: growLean,
+    })
+    .add("SkewMMR - GenerateProof", async () => mmr.prove(index), {
+      beforeAll: () => {
+        mmr = newSkewMmr();
+      },
+      beforeEach: growSkew,
+    })
+    // VerifyProof
+    .add("IMT - VerifyProof", async () => imt.verifyProof(imtProof), {
+      beforeAll: freshImt,
+      beforeEach: () => {
+        growImt();
+        imtProof = imt.createProof(index);
+      },
+    })
+    .add("LeanIMT - VerifyProof", async () => leanIMT.verifyProof(leanProof), {
+      beforeAll: () => {
+        leanIMT = new LeanIMT(leanIMTHash);
+      },
+      beforeEach: () => {
+        growLean();
+        leanProof = leanIMT.generateProof(index);
+      },
+    })
+    .add("SkewMMR - VerifyProof", async () => verify(poseidonHasher, skewProof, roots, ranks, 1n), {
+      beforeAll: () => {
+        mmr = newSkewMmr();
+      },
+      beforeEach: () => {
+        growSkew();
+        skewProof = mmr.prove(index);
+        // The verifier is handed the frontier; reading it is not part of verification.
+        roots = mmr.roots();
+        ranks = mmr.ranks();
+      },
+    });
+
+  await bench.run();
+  const rows = results(bench);
+  console.table(rows);
+
+  const csv = ["function,structure,mean_ms,samples"];
+  for (const { name, mean, samples } of rows) {
+    const [structure, fn] = name.split(" - ");
+    csv.push(`${fn},${structure},${mean.toFixed(5)},${samples}`);
+  }
+  writeFileSync(new URL("../results/perf-js-functions.csv", import.meta.url), csv.join("\n") + "\n");
+}
+
+await insertBenchmark();
+await functionsBenchmark();
