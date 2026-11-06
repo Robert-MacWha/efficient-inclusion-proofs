@@ -20,7 +20,7 @@ flowchart TD
 
 ## Insertion
 
-Insertion keeps one invariant: only the two rightmost trees may have the same depth. So a merge never creates another pair to merge, and an insertion never needs more than one hash. A leanIMT insertion instead recomputes the path from the new leaf to the root, which costs up to one hash per level.
+Insertion assures that only the two rightmost nodes may have the same depth. Because merging involves three nodes, this means that each insertion will only ever require zero or one hash.
 
 ### Case 1: The two rightmost nodes are not the same depth
 

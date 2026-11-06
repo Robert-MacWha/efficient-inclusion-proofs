@@ -1,6 +1,6 @@
-# Skew-MMR vs zk-kit's Merkle trees
+# Skew-MMR Benchmarks
 
-Skew-MMR compared with zk-kit's [leanIMT](https://github.com/zk-kit/zk-kit.solidity/tree/main/packages/lean-imt) and [IMT](https://github.com/zk-kit/zk-kit/tree/main/packages/imt), up to 1,024 members. All hashes are Poseidon.
+Skew-MMR benchmarks for compute, gas, and constraint compared with zk-kit's [leanIMT](https://github.com/zk-kit/zk-kit.solidity/tree/main/packages/lean-imt) and [IMT](https://github.com/zk-kit/zk-kit/tree/main/packages/imt).
 
 | At 1,024 members           | skew-MMR | leanIMT |
 | -------------------------- | -------- | ------- |
@@ -38,13 +38,11 @@ Circom constraints (`--O2`) for skew-MMR's [`inclusion.circom`](../circuits/incl
 | 1,000   | 2,463   | 2,584    | +5%        |
 | 1,024   | 2,463   | 2,867    | +16%       |
 
-Skew-MMR needs its next circuit size a few members before each power of two, so the gap briefly widens there.
-
 ![Constraints vs capacity](results/constraints_vs_capacity.svg)
 
 ## JS performance
 
-[tinybench](https://github.com/tinylibs/tinybench) over 1,024 iterations, each adding one member to a growing tree, using `@zk-kit/imt`, `@zk-kit/lean-imt`, [`packages/`](../packages) and `poseidon-lite`.
+[tinybench](https://github.com/tinylibs/tinybench) over 1,024 iterations using `@zk-kit/imt`, `@zk-kit/lean-imt`, [`packages/`](../packages), and `poseidon-lite`.
 
 ![JS insert time vs members](results/perf_js_insert.svg)
 

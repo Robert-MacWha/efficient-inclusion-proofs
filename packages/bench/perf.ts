@@ -1,7 +1,5 @@
 /**
  * Times insert, prove and verify for skew-MMR, zk-kit's LeanIMT and zk-kit's IMT with tinybench.
- * Each iteration adds one member to a growing tree. Writes `bench/results/perf-js.csv`: each
- * insert's time in order (tinybench sorts its own samples), then the mean of each function.
  */
 import { writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
@@ -18,7 +16,6 @@ const MEMBERS = 1_024;
 interface Subject {
   name: string;
   reset(): void;
-  /** Makes room for one more member. Only the IMT needs it: it is rebuilt one level deeper. */
   fit(): void;
   insert(): void;
   /** Proves the middle member. */
