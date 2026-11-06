@@ -34,9 +34,6 @@ contract LeanImtPoseidon is IInsert {
 }
 
 /// @dev Writes the gas of each insert into an empty tree to `bench/results/gas-<name>.csv`.
-///      Every call runs as its own transaction (`isolate`), so it is whole-transaction gas.
-///
-/// forge-config: default.isolate = true
 contract LeanImtComparisonGasTest is Test {
     uint256 constant MEMBERS = 1_024;
 
