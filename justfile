@@ -15,15 +15,9 @@ publish *flags:
         (cd "$dir" && pnpm publish {{flags}})
     done
 
-# Benchmark skew-MMR against zk-kit's trees (insert gas, constraints, JS performance); see benchmarks/README.md
+# Compare skew-MMR with zk-kit's trees; see bench/README.md
 bench:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    (cd packages && pnpm install)
-    cd benchmarks
-    pnpm install
-    [ -d lib/forge-std ] || forge install foundry-rs/forge-std@v1.16.2 --no-git
-    forge test
-    python3 scripts/constraints.py
-    node perf/bench.ts
-    python3 scripts/plot.py
+    cd contracts && pnpm install && forge test --mc LeanImtComparison
+    cd packages && pnpm install && pnpm bench
+    python3 bench/constraints.py
+    python3 bench/plot.py

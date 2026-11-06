@@ -6,8 +6,8 @@ Skew-MMR compared with zk-kit's [leanIMT](https://github.com/zk-kit/zk-kit.solid
 | -------------------------- | -------- | ------- |
 | Mean insert gas            | 71,948   | 185,610 |
 | Proof constraints          | 2,867    | 2,463   |
-| JS insert (ms)             | 0.111    | 0.849   |
-| JS verify (ms, 100 members) | 0.753    | 1.22    |
+| JS insert (ms)             | 0.120    | 0.829   |
+| JS verify (ms)             | 1.42     | 1.51    |
 
 ## Insert gas
 
@@ -44,18 +44,15 @@ Skew-MMR needs its next circuit size a few members before each power of two, so 
 
 ## JS performance
 
-[tinybench](https://github.com/tinylibs/tinybench) on `@zk-kit/imt`, `@zk-kit/lean-imt` and [`packages/`](../packages), with `poseidon-lite`. Each iteration adds one member to a growing tree.
+[tinybench](https://github.com/tinylibs/tinybench) over 1,024 iterations, each adding one member to a growing tree, using `@zk-kit/imt`, `@zk-kit/lean-imt`, [`packages/`](../packages) and `poseidon-lite`.
 
 ![JS insert time vs members](results/perf_js_insert.svg)
 
-![JS functions](results/perf_js_functions.svg)
-
-| Mean ms, 100 iterations | skew-MMR | leanIMT | IMT   |
-| ----------------------- | -------- | ------- | ----- |
-| Insert                  | 0.100    | 0.508   | 0.937 |
-| InsertMany              | 5.50     | 8.66    | 94.2  |
-| GenerateProof           | 0.0052   | 0.0067  | 0.0069 |
-| VerifyProof             | 0.753    | 1.22    | 1.18  |
+| Mean ms       | skew-MMR | leanIMT | IMT    |
+| ------------- | -------- | ------- | ------ |
+| Insert        | 0.120    | 0.829   | 1.52   |
+| GenerateProof | 0.0014   | 0.0029  | 0.0032 |
+| VerifyProof   | 1.42     | 1.51    | 1.66   |
 
 ## Running
 

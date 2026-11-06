@@ -2,6 +2,12 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+remappings = [
+    "lean-imt/=node_modules/lean-imt/",
+    "poseidon-solidity/=node_modules/poseidon-solidity/",
+]
+# `test/LeanImtComparison.gas.t.sol` writes its results here.
+fs_permissions = [{ access = "write", path = "../bench/results" }]
 
 auto_detect_solc = false
 optimizer = true
