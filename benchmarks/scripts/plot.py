@@ -18,8 +18,6 @@ INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 MEMBERS = 1_024
 # Inserts averaged per point in the gas and JS insert charts.
 BUCKET = 32
-# A fixed capacity covering 1,024 members: leanIMT depth 11 (2,048), skew-MMR 10 trees (2,036).
-FIXED = {"leanimt": 11, "skew-mmr": 10}
 STRUCTURES = [("skew-mmr", "skew-MMR", SKEW), ("leanimt", "leanIMT", LEAN), ("binary-imt", "IMT", IMT)]
 
 plt.rcParams.update({
@@ -123,24 +121,29 @@ def plot_constraints_vs_capacity() -> None:
     save(fig, "constraints_vs_capacity")
 
 
+def smallest_fit(rows: list[dict], members: int) -> dict:
+    """The smallest compiled circuit whose capacity holds `members`."""
+    return min((r for r in rows if int(r["capacity"]) >= members), key=lambda r: int(r["size"]))
+
+
 def plot_constraints_vs_members() -> None:
     data = constraints()
-    members = list(range(1, MEMBERS + 1))
+    # From 2: the smallest compiled skew-MMR circuit has 2 trees.
+    members = list(range(2, MEMBERS + 1))
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    for structure, label, color in [("skew-mmr", f"skew-MMR, {FIXED['skew-mmr']} trees", SKEW),
-                                    ("leanimt", f"leanIMT, depth {FIXED['leanimt']}", LEAN)]:
-        row = next(r for r in data[structure] if int(r["size"]) == FIXED[structure])
-        ys = [int(row["constraints"])] * len(members)
-        ax.plot(members, ys, color=color, linewidth=2,
-                label=f"{label} (capacity {int(row['capacity']):,})")
-        ax.annotate(f"{ys[0]:,}", (members[-1], ys[-1]), xytext=(6, 0), textcoords="offset points",
+    for structure, label, color in STRUCTURES[:2]:
+        ys = [int(smallest_fit(data[structure], n)["constraints"]) for n in members]
+        ax.step(members, ys, where="post", color=color, linewidth=2, label=label)
+        ax.annotate(label, (members[-1], ys[-1]), xytext=(6, 0), textcoords="offset points",
                     va="center", color=INK)
-    ax.set_xlabel("Members")
+    ax.set_xscale("log", base=2)
+    ax.set_xticks([2, 4, 16, 64, 256, 1_024], ["2", "4", "16", "64", "256", "1,024"])
+    ax.set_xlim(2, MEMBERS * 1.6)
+    ax.set_xlabel("Members (log scale)")
     ax.set_ylabel("Constraints (circom --O2)")
-    ax.set_xlim(0, MEMBERS * 1.1)
-    ax.set_ylim(0, 3_500)
-    ax.set_title("Membership-proof constraints vs members, fixed capacity", loc="left", color=INK)
-    ax.legend(loc="lower right")
+    ax.set_ylim(bottom=0)
+    ax.set_title("Membership-proof constraints, smallest circuit that fits", loc="left", color=INK)
+    ax.legend(loc="upper left")
     fig.tight_layout()
     save(fig, "constraints_vs_members")
 
@@ -222,6 +225,13 @@ def tables() -> None:
         lean = next(int(r["constraints"]) for r in data["leanimt"] if int(r["size"]) == depth)
         ours = skew[depth - 1]
         print(f"| 2^{depth} | {lean:,} | {ours:,} | {100 * (ours - lean) / lean:+.0f}% |")
+    print()
+    print("| Members | leanIMT | skew-MMR | Difference |  (smallest circuit that fits)")
+    for n in [10, 100, 500, 1_000, 1_024]:
+        lean = smallest_fit(data["leanimt"], n)
+        ours = smallest_fit(data["skew-mmr"], n)
+        a, b = int(lean["constraints"]), int(ours["constraints"])
+        print(f"| {n:,} | {a:,} (depth {lean['size']}) | {b:,} ({ours['size']} trees) | {100 * (b - a) / a:+.0f}% |")
     print()
 
     inserts = js_insert()

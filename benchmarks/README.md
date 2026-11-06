@@ -5,7 +5,7 @@ Skew-MMR compared with zk-kit's [leanIMT](https://github.com/zk-kit/zk-kit.solid
 **Summary, over the first 1,024 members:**
 
 - **Insert gas:** skew-MMR averages 53k (keccak) / 72k (Poseidon) and stays flat. LeanIMT averages 90k / 186k and keeps growing.
-- **Proof constraints** (capacity 2^10): skew-MMR needs 2,584, 5% more than leanIMT's 2,463.
+- **Proof constraints:** for 1,000 members, skew-MMR needs 2,584, 5% more than leanIMT's 2,463.
 - **JS:** skew-MMR inserts in 0.11 ms vs leanIMT's 0.85 ms. Verify is 0.75 ms vs 1.22 ms.
 
 ## Insert gas
@@ -49,9 +49,19 @@ Circom constraint counts (`--O2`):
 
 Each level costs leanIMT 246 constraints and skew-MMR 283, mainly because skew-MMR hashes 3 inputs per level instead of 2.
 
-Both circuits have a fixed size, so the count doesn't change as the tree fills. Here both are sized for ~2k members:
+The circuit size is fixed when it's compiled, so the cost depends on the capacity you pick, not on how full the tree is. Here each member count uses the smallest circuit that holds it:
 
 ![Constraints vs members](results/constraints_vs_members.svg)
+
+| Members | leanIMT           | skew-MMR          | Difference |
+| ------- | ----------------- | ----------------- | ---------- |
+| 10      | 987 (depth 4)     | 886 (3 trees)     | −10%       |
+| 100     | 1,725 (depth 7)   | 1,735 (6 trees)   | +1%        |
+| 500     | 2,217 (depth 9)   | 2,301 (8 trees)   | +4%        |
+| 1,000   | 2,463 (depth 10)  | 2,584 (9 trees)   | +5%        |
+| 1,024   | 2,463 (depth 10)  | 2,867 (10 trees)  | +16%       |
+
+LeanIMT steps up just after each power of two. Skew-MMR steps up just before it, because `t` trees hold 2^(t+1) − t − 2 members rather than 2^(t+1). So for the last few members before each power of two (63 of the 1,023 sizes here), skew-MMR needs its next size while leanIMT doesn't.
 
 ## JS performance
 
