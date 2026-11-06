@@ -76,20 +76,17 @@ def gas(name: str) -> list[int]:
 
 
 def plot_gas() -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    for ax, hash_fn in zip(axes, ["keccak", "poseidon"]):
-        for structure, label, color in STRUCTURES[:2]:
-            line_with_band(ax, gas(f"{structure}-{hash_fn}"), label, color)
-        ax.set_title(f"{'Keccak' if hash_fn == 'keccak' else 'Poseidon'} node hash", loc="left",
-                     color=INK)
-        ax.set_xlabel("Members")
-        ax.set_xlim(0, MEMBERS)
-        ax.set_ylim(bottom=0)
-        ax.yaxis.set_major_formatter(lambda v, _: f"{v / 1000:.0f}k")
-    axes[0].set_ylabel("Insert gas (whole transaction)")
-    axes[0].legend(loc="upper left")
-    fig.suptitle(f"Insert gas vs members (mean of each {BUCKET} inserts; shading = min–max)",
-                 x=0.01, ha="left", color=INK)
+    fig, ax = plt.subplots(figsize=(7.5, 4.2))
+    for structure, label, color in STRUCTURES[:2]:
+        line_with_band(ax, gas(structure), label, color)
+    ax.set_xlabel("Members")
+    ax.set_ylabel("Gas per insert")
+    ax.set_xlim(0, MEMBERS)
+    ax.set_ylim(bottom=0)
+    ax.yaxis.set_major_formatter(lambda v, _: f"{v / 1000:.0f}k")
+    ax.set_title(f"Insert gas (mean of each {BUCKET} inserts; shading = min–max)", loc="left",
+                 color=INK)
+    ax.legend(loc="upper left")
     fig.tight_layout()
     save(fig, "insert_gas")
 
@@ -203,16 +200,10 @@ def plot_js_functions() -> None:
 
 
 def tables() -> None:
-    names = ["skew-mmr-keccak", "leanimt-keccak", "skew-mmr-poseidon", "leanimt-poseidon"]
-    series = [gas(name) for name in names]
-    print("| Average over first | skew-MMR keccak | leanIMT keccak | skew-MMR Poseidon | leanIMT Poseidon |")
-    print("| ------------------ | --------------- | -------------- | ----------------- | ---------------- |")
+    skew, lean = gas("skew-mmr"), gas("leanimt")
+    print("| Members | skew-MMR | leanIMT |  (mean insert gas over the first N)")
     for n in [128, 256, 512, 1_024]:
-        print(f"| {n:,} | " + " | ".join(f"{mean(s[:n]):,.0f}" for s in series) + " |")
-    print()
-    print("| Members | " + " | ".join(names) + " |  (mean of the 32 inserts ending here)")
-    for n in [128, 256, 512, 1_024]:
-        print(f"| {n:,} | " + " | ".join(f"{mean(s[n - BUCKET:n]):,.0f}" for s in series) + " |")
+        print(f"| {n:,} | {mean(skew[:n]):,.0f} | {mean(lean[:n]):,.0f} |")
     print()
 
     # A skew-MMR with `d - 1` trees holds 2^d - d - 1 members, the same capacity as a depth-`d`

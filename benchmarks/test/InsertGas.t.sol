@@ -3,21 +3,11 @@ pragma solidity ^0.8.33;
 
 import {Test, Vm} from "forge-std/Test.sol";
 
-import {
-    IInsert,
-    SkewMmrKeccak,
-    SkewMmrPoseidon,
-    LeanImtKeccak,
-    LeanImtPoseidon
-} from "../src/Targets.sol";
+import {IInsert, SkewMmrPoseidon, LeanImtPoseidon} from "../src/Targets.sol";
 
-/// @dev Records the gas of every single insert into an initially empty structure, writing
-///      `results/gas/<name>.csv` as `members,gas`, where `members` is the size after the insert.
-///
-///      With `isolate = true` every call from the test runs as its own transaction, so `gas`
-///      (`vm.lastCallGas().gasTotalUsed`) is the whole transaction's gas: the 21,000 base cost,
-///      calldata, and cold access to every account and slot touched, including the Poseidon
-///      libraries. This is what `hardhat-gas-reporter` reports for zk-kit's own tests.
+/// @dev Records the gas of each insert into an empty tree, as `members,gas` in
+///      `results/gas/<name>.csv`. Every call runs as its own transaction (`isolate`), so `gas` is
+///      whole-transaction gas.
 ///
 /// forge-config: default.isolate = true
 contract InsertGasBench is Test {
@@ -27,22 +17,13 @@ contract InsertGasBench is Test {
     uint256 constant MAX_DEPTH = 26;
     uint256 constant HISTORY_SIZE = 64;
 
-    function test_skewMmrKeccak() public {
-        run("skew-mmr-keccak", new SkewMmrKeccak(MAX_DEPTH, HISTORY_SIZE));
+    function test_skewMmr() public {
+        run("skew-mmr", new SkewMmrPoseidon(MAX_DEPTH, HISTORY_SIZE));
     }
 
-    function test_skewMmrPoseidon() public {
-        run("skew-mmr-poseidon", new SkewMmrPoseidon(MAX_DEPTH, HISTORY_SIZE));
+    function test_leanImt() public {
+        run("leanimt", new LeanImtPoseidon());
     }
-
-    function test_leanImtKeccak() public {
-        run("leanimt-keccak", new LeanImtKeccak());
-    }
-
-    function test_leanImtPoseidon() public {
-        run("leanimt-poseidon", new LeanImtPoseidon());
-    }
-
 
     function run(string memory name, IInsert target) internal {
         string memory path = string.concat("results/gas/", name, ".csv");
