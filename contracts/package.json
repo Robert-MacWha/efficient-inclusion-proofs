@@ -15,5 +15,9 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "lean-imt": "npm:@zk-kit/lean-imt.sol@2.0.1",
+    "poseidon-solidity": "0.0.5"
   }
 }

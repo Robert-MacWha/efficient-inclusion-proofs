@@ -1,0 +1,32 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      lean-imt:
+        specifier: npm:@zk-kit/lean-imt.sol@2.0.1
+        version: '@zk-kit/lean-imt.sol@2.0.1'
+      poseidon-solidity:
+        specifier: 0.0.5
+        version: 0.0.5
+
+packages:
+
+  '@zk-kit/lean-imt.sol@2.0.1':
+    resolution: {integrity: sha512-2dy/wfzch2vy5QtDCFmQwN7E4GZP0xBcucTb2mfZoJP5V69cjPRdy6KcbS0YOcBMH/Lb7BgXLsekRYjh9JNKEw==}
+
+  poseidon-solidity@0.0.5:
+    resolution: {integrity: sha512-NzrvSwHzvZgT4hvg2GyGqeR+UOU/eLSEt4wAoXEua+VaR7NTKKwx1X9bPlh1VMBEVEno+IWvkRBbidFGzTeAqQ==}
+
+snapshots:
+
+  '@zk-kit/lean-imt.sol@2.0.1':
+    dependencies:
+      poseidon-solidity: 0.0.5
+
+  poseidon-solidity@0.0.5: {}

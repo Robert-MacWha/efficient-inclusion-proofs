@@ -14,3 +14,10 @@ publish *flags:
         echo "publishing $name@$version"
         (cd "$dir" && pnpm publish {{flags}})
     done
+
+# Compare skew-MMR with zk-kit's trees; see bench/README.md
+bench:
+    cd contracts && pnpm install && forge test --mc LeanImtComparison
+    cd packages && pnpm install && pnpm bench
+    python3 bench/constraints.py
+    python3 bench/plot.py
