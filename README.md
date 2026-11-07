@@ -8,6 +8,7 @@ This repo contains set commitment structures that allow a caller to cheaply prov
 ## Overview
 
 - [skew-mmr](crates/skew-mmr): A modified Merkle Mountain Range that uses skew-binary carrying rules. Bounds appends at one hash.
+  - [lean](lean): Lean proof that the skew-mmr circuit decides what the native verifier decides.
 - [hash-chain](crates/hash-chain): A hash chain that keeps a running chain per level, each batch of `BATCH` elements closing and folding into the level above.  Average append cost is 1 hash, with rare cases of 2, 3, or 4 hashes.
 
 > skew-mmr is *probably* the better choice for privacy protocols. It has a higher average gas cost (~62k vs ~40k using poseidon2), but:

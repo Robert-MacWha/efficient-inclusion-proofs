@@ -1,0 +1,18 @@
+name = "skew-mmr"
+defaultTargets = ["SkewMmr", "Traces"]
+
+[leanOptions]
+autoImplicit = false
+relaxedAutoImplicit = false
+
+[[require]]
+name = "ark-r1cs"
+git = "https://github.com/Robert-MacWha/lean-ark-r1cs"
+subDir = "lean"
+rev = "claude/happy-einstein-zzykf1"
+
+[[lean_lib]]
+name = "SkewMmr"
+
+[[lean_lib]]
+name = "Traces"

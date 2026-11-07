@@ -15,6 +15,7 @@ tracing = { version = "0.1.44", optional = true }
 
 [dev-dependencies]
 ark-bn254 = "0.6"
+ark-r1cs-trace = { git = "https://github.com/Robert-MacWha/lean-ark-r1cs" }
 ark-std = "0.6"
 alloy = { version = "2.5.0", features = [
     "node-bindings",

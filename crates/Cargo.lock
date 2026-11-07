@@ -1000,6 +1000,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-r1cs-trace"
+version = "0.1.0"
+source = "git+https://github.com/Robert-MacWha/lean-ark-r1cs#a4fdea3990a8cc3f3fe32446a0be0f39375b4bd2"
+dependencies = [
+ "ark-ff 0.6.0",
+ "ark-relations",
+]
+
+[[package]]
 name = "ark-relations"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4096,6 +4105,7 @@ dependencies = [
  "ark-bn254",
  "ark-ff 0.6.0",
  "ark-r1cs-std",
+ "ark-r1cs-trace",
  "ark-relations",
  "ark-std 0.6.0",
  "criterion",

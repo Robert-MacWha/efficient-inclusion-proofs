@@ -47,6 +47,7 @@
               nodejs_24
               pnpm
               just
+              elan
               (python3.withPackages (ps: [ ps.matplotlib ]))
             ];
 

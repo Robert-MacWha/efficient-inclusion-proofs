@@ -21,3 +21,10 @@ bench:
     cd packages && pnpm install && pnpm bench
     python3 bench/constraints.py
     python3 bench/plot.py
+
+# Check the Lean proofs of the skew-MMR circuit, and its model against arkworks; see lean/README.md
+lean:
+    cd lean && lake build
+    mkdir -p crates/target/lean-traces
+    cd lean && lake env lean --run Traces.lean ../crates/target/lean-traces
+    cd crates && cargo test -p skew-mmr --test lean_traces -- --ignored
