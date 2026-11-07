@@ -7,7 +7,7 @@
    "type": "git",
    "subDir": "lean",
    "scope": "",
-   "rev": "50312da4a751d10e5cb81c05403ebe9f35918d99",
+   "rev": "44b87c6264727a8e438670de518b21831864f5a2",
    "name": "\u00abark-r1cs\u00bb",
    "manifestFile": "lake-manifest.json",
    "inputRev": "claude/happy-einstein-zzykf1",
