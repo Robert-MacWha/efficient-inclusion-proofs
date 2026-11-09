@@ -7,7 +7,7 @@
    "type": "git",
    "subDir": "lean",
    "scope": "",
-   "rev": "fe358d7517fddeb8d386fb3a4daaab87465ee286",
+   "rev": "23f9556a9cf6537499f6dd61cc812695ab9d1c04",
    "name": "\u00abark-r1cs\u00bb",
    "manifestFile": "lake-manifest.json",
    "inputRev": "main",

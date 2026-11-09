@@ -26,10 +26,10 @@ def hasher : HasherGadget F where
   hash_native e l r := e * l + r
   hash e l r := do
     let m ← e.mul l
-    pure (m.add r)
+    pure (m + r)
   sound e l r k a h := by
     simp only [CS.run_bind, CS.run_pure, constraintsHold_append] at h ⊢
-    rw [FpVar.eval_add, FpVar.mul_sound e l k a h.1]
+    rw [FpVar.eval_hAdd, FpVar.mul_sound e l k a h.1]
 
 /-- `check`: allocates the proof as the crate's tests do, then verifies it. -/
 def check (q : Proof F) : CS F (Boolean F) := do

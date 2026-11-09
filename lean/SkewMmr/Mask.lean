@@ -20,16 +20,16 @@ variable {F : Type} [Field F] [DecidableEq F]
 lands in `0..=N`. -/
 def prefix_mask (N : Nat) (value : FpVar F) : CS F (List (Boolean F) × Boolean F) := do
   let acc ← (List.range N).foldlM (fun (acc : List (Boolean F) × Boolean F) (i : Nat) => do
-      let e ← EqGadget.is_eq (F := F) value (FpVar.constant (i : F))
+      let e ← EqGadget.is_eq (F := F) value (FpVar.Constant (i : F))
       let reached ← acc.2.or e
       pure (acc.1 ++ [reached.not], reached)) ([], Boolean.FALSE)
-  let e ← EqGadget.is_eq (F := F) value (FpVar.constant (N : F))
+  let e ← EqGadget.is_eq (F := F) value (FpVar.Constant (N : F))
   let bounded ← acc.2.or e
   pure (acc.1, bounded)
 
 /-- `one_hot::<N>`: the mask `i == value` over `0..N`. -/
 def one_hot (N : Nat) (value : FpVar F) : CS F (List (Boolean F)) :=
-  (List.range N).mapM fun (i : Nat) => EqGadget.is_eq (F := F) value (FpVar.constant (i : F))
+  (List.range N).mapM fun (i : Nat) => EqGadget.is_eq (F := F) value (FpVar.Constant (i : F))
 
 end Gadgets
 
@@ -66,10 +66,10 @@ theorem eq_natCast_iff (x : ZMod p) {i : Nat} (hi : i < p) : x = (i : ZMod p) �
 
 theorem is_eq_constant_sound (value : FpVar (ZMod p)) (c : ZMod p) (k : Counters)
     (a : Assignment (ZMod p))
-    (h : ConstraintsHold a ((EqGadget.is_eq (F := ZMod p) value (FpVar.constant c)).run k).2) :
-    ((EqGadget.is_eq (F := ZMod p) value (FpVar.constant c)).run k).1.eval a =
+    (h : ConstraintsHold a ((EqGadget.is_eq (F := ZMod p) value (FpVar.Constant c)).run k).2) :
+    ((EqGadget.is_eq (F := ZMod p) value (FpVar.Constant c)).run k).1.eval a =
       if value.eval a = c then 1 else 0 :=
-  FpVar.is_eq_sound value (FpVar.constant c) k a h
+  FpVar.is_eq_sound value (FpVar.Constant c) k a h
 
 /-- The accumulator of `prefix_mask` after `n` steps, for `value = v`. -/
 theorem prefix_mask_foldl (v : ZMod p) (n : Nat) (hn : n ≤ p) :
