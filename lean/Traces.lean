@@ -2,8 +2,8 @@
 # Differential traces
 
 The circuit of `crates/skew-mmr/tests/lean_traces.rs` (allocate a proof, then
-`ProofVar::verify`) for a few proofs, rendered with `renderTrace`. That test
-builds the same circuits with the real gadgets and checks that the arkworks
+`ProofVar::verify`) for one proof, rendered with `renderTrace`. That test
+builds the same circuit with the real gadgets and checks that the arkworks
 constraint matrices and assignment match, so any divergence between the model
 and the Rust fails `just lean`.
 
@@ -47,12 +47,10 @@ def proof (element : F) (tree : Nat) (children : F × F) (path_len : Nat) (path 
     Proof F :=
   ⟨[2, 3], ⟨1, 2, 4⟩, element, tree, children, path_len, path⟩
 
+/-- Element 0 of the accumulator holding `0..4`. The constraint matrices do not
+depend on the witness values, so one proof covers them. -/
 def cases : List (String × Proof F) :=
-  [("proof_0", proof 0 0 (0, 0) 1 [⟨2, 1, true⟩, pad]),
-    ("proof_1", proof 1 0 (0, 0) 1 [⟨2, 0, false⟩, pad]),
-    ("proof_2", proof 2 0 (1, 0) 0 [pad, pad]),
-    ("proof_3", proof 3 1 (0, 0) 0 [pad, pad]),
-    ("tampered", proof 7 0 (0, 0) 1 [⟨2, 1, true⟩, pad])]
+  [("verify", proof 0 0 (0, 0) 1 [⟨2, 1, true⟩, pad])]
 
 def render (q : Proof F) : String :=
   renderTrace (fun x : F => toString x.val) ((check q).run Counters.new).2

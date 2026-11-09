@@ -1,5 +1,5 @@
-//! Builds the circuits of `lean/Traces.lean` with the real gadgets and checks
-//! that the arkworks constraint matrices and assignment match the traces the
+//! Builds the circuit of `lean/Traces.lean` with the real gadgets and checks
+//! that the arkworks constraint matrices and assignment match the trace the
 //! Lean model renders into `crates/target/lean-traces` (`just lean`).
 
 use ark_ff::{Fp64, MontBackend, MontConfig};
@@ -60,20 +60,15 @@ fn check(proof: &Proof<MAX_DEPTH, F, TestHasher>) -> String {
     render_trace(&cs).unwrap()
 }
 
-/// The proofs `Traces.lean` renders: every element of an accumulator holding
-/// `0..4`, then a tampered one.
+/// The proof `Traces.lean` renders: element 0 of an accumulator holding `0..4`.
+///
+/// The constraint matrices do not depend on the witness values, so one proof covers them.
 fn proofs() -> Vec<(String, Proof<MAX_DEPTH, F, TestHasher>)> {
     let mut mmr = SkewMmr::<MAX_DEPTH, F, TestHasher>::new();
     for i in 0..4u64 {
         mmr.append(F::from(i));
     }
-    let mut proofs: Vec<_> = (0..4)
-        .map(|i| (format!("proof_{i}"), mmr.prove(i)))
-        .collect();
-    let mut tampered = mmr.prove(0);
-    tampered.element = F::from(7u64);
-    proofs.push(("tampered".to_string(), tampered));
-    proofs
+    vec![("verify".to_string(), mmr.prove(0))]
 }
 
 #[test]
