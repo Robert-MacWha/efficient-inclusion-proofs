@@ -88,46 +88,41 @@ theorem leBitsValue_natCast {F : Type} [Field F] (L : List Nat) :
   | nil => rfl
   | cons x L ih => simp only [List.map_cons, leBitsValue_cons, ih, Nat.ofDigits, Nat.cast_ofNat]
 
-variable {p : Nat} [Fact p.Prime]
-
-theorem val_of_bit {x : ZMod p} (hx : x = 0 ∨ x = 1) : x.val < 2 := by
-  rcases hx with rfl | rfl
-  · simp
-  · rw [ZMod.val_one]; norm_num
-
 /-- `RANK_BITS * i + RANK_BITS ≤ RANK_BITS * D` for `i < D`. -/
 theorem rank_bits_le {i D : Nat} (hi : i < D) : RANK_BITS * i + RANK_BITS ≤ RANK_BITS * D := by
   simp only [RANK_BITS]; omega
 
-/-- Soundness of `from_parts`: `packed_ranks` is a word below `2^(RANK_BITS *
-MAX_DEPTH)` whose `RANK_BITS`-bit fields are `ranks`, `populated` is
-`i < depth` and `bounded` is `depth ≤ MAX_DEPTH`. -/
-theorem from_parts_sound (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p)
-    (packed_ranks depth count : FpVar (ZMod p)) (hpacked : ¬ packed_ranks.isConstant)
-    (k : Counters) (a : Assignment (ZMod p))
-    (h : ConstraintsHold a ((StateVar.from_parts D packed_ranks depth count).run k).2) :
-    let s := ((StateVar.from_parts D packed_ranks depth count).run k).1
+theorem rank_bits_lt (N i : Nat) : State.rank_bits N i < 2 ^ RANK_BITS :=
+  Nat.mod_lt _ (by positivity)
+
+variable {p : Nat} [Fact p.Prime]
+
+omit [Fact p.Prime] in
+theorem D_lt_p {D : Nat} (hD : 2 ^ (RANK_BITS * D) < p) : D < p :=
+  lt_of_le_of_lt (le_trans (Nat.lt_two_pow_self).le
+    (Nat.pow_le_pow_right (by norm_num) (by simp [RANK_BITS]; omega))) hD
+
+/-- Soundness of `unpack`: `packed_ranks` is below `2^(RANK_BITS * MAX_DEPTH)`, and
+rank `i` is its rank bits for tree `i`. -/
+theorem unpack_sound (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p) (packed_ranks : FpVar (ZMod p))
+    (hpacked : ¬ packed_ranks.isConstant) (k : Counters) (a : Assignment (ZMod p))
+    (h : ConstraintsHold a ((unpack D packed_ranks).run k).2) :
     let N := (packed_ranks.eval a).val
     N < 2 ^ (RANK_BITS * D) ∧
-      s.ranks.map (·.eval a) =
-        (List.range D).map (fun i => ((N / 2 ^ (RANK_BITS * i) % 2 ^ RANK_BITS : Nat) : ZMod p)) ∧
-      s.populated.map (·.eval a) =
-        (List.range D).map (fun i => if i < (depth.eval a).val then 1 else 0) ∧
-      s.bounded.eval a = (if (depth.eval a).val ≤ D then 1 else 0) := by
-  have hDp : D < p := lt_of_le_of_lt
-    (le_trans (Nat.lt_two_pow_self).le (Nat.pow_le_pow_right (by norm_num) (by simp [RANK_BITS]; omega))) hD
-  simp only [StateVar.from_parts, unpack, CS.run_bind, CS.run_pure, constraintsHold_append] at h ⊢
-  obtain ⟨⟨hbits, -⟩, hmask, -⟩ := h
+      ((unpack D packed_ranks).run k).1.map (·.eval a) =
+        (List.range D).map (fun i => (State.rank_bits N i : ZMod p)) := by
+  simp only [unpack, CS.run_bind, CS.run_pure, constraintsHold_append, constraintsHold_nil,
+    and_true] at h ⊢
+  -- The decomposition gives `RANK_BITS * D` bits whose value is `packed_ranks`.
   obtain ⟨hlen, hbit, hval⟩ :=
-    FpVar.to_bits_le_with_top_bits_zero_sound packed_ranks hpacked _ k a hbits
-  obtain ⟨hpop, hbnd⟩ := prefix_mask_sound D hDp depth _ a hmask
-  -- The bits as natural numbers.
+    FpVar.to_bits_le_with_top_bits_zero_sound packed_ranks hpacked _ k a h
   set bits := ((packed_ranks.to_bits_le_with_top_bits_zero (RANK_BITS * D)).run k).1.1
+  -- Read the bits as base-2 digits `L`, so that `packed_ranks` is the number they spell.
   set L := bits.map fun b => (b.eval a).val
   have hL : ∀ x ∈ L, x < 2 := by
     simp only [L, List.mem_map]
     rintro _ ⟨b, hb, rfl⟩
-    exact val_of_bit (hbit b hb)
+    exact val_lt_two_of_bit (hbit b hb)
   have hcast : ∀ l : List (Boolean (ZMod p)), l.map (·.eval a) =
       (l.map fun b => (b.eval a).val).map (Nat.cast : Nat → ZMod p) := by
     intro l; simp [Function.comp_def]
@@ -136,75 +131,73 @@ theorem from_parts_sound (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p)
     rw [← hLlen]; exact Nat.ofDigits_lt_base_pow_length (by norm_num) hL
   have hN : (packed_ranks.eval a).val = Nat.ofDigits 2 L := by
     rw [hval, hcast, leBitsValue_natCast, ZMod.val_cast_of_lt (hNlt.trans hD)]
-  refine ⟨hN ▸ hNlt, ?_, hpop, hbnd⟩
+  refine ⟨hN ▸ hNlt, ?_⟩
+  -- Rank `i` is spelled by digits `6i .. 6i + 6`, which are its rank bits.
   rw [List.map_map]
   apply List.map_congr_left
   intro i hi
   rw [List.mem_range] at hi
   simp only [Function.comp_apply, Boolean.eval_le_bits_to_fp, hcast, hN]
-  rw [List.map_take, List.map_drop, leBitsValue_natCast]
-  congr 1
-  exact ofDigits_drop_take L hL _ _ (hLlen ▸ rank_bits_le hi)
+  rw [List.map_take, List.map_drop, leBitsValue_natCast, State.rank_bits,
+    ofDigits_drop_take L hL _ _ (hLlen ▸ rank_bits_le hi)]
 
-/-- The accumulator of `StateVar::rank` after `n` trees. -/
-theorem rank_foldl (T dep : Nat) (R : Nat → ZMod p) (n : Nat) :
-    (List.range n).foldl
-        (fun (acc : ZMod p × ZMod p) (i : Nat) =>
-          (acc.1 + (if T = i then 1 else 0) * (R i - acc.1),
-            1 - (1 - acc.2) * (1 - (if T = i then 1 else 0) * (if i < dep then 1 else 0))))
-        (0, 0) =
-      (if T < n then R T else 0, if T < n ∧ T < dep then 1 else 0) := by
-  induction n with
-  | zero => simp
-  | succ n ih =>
-    rw [List.range_succ, List.foldl_append, ih]
-    simp only [List.foldl_cons, List.foldl_nil, Prod.mk.injEq]
-    refine ⟨?_, ?_⟩
-    · by_cases h1 : T = n
-      · subst h1; simp
-      · have : T < n + 1 ↔ T < n := by omega
-        simp [h1, this]
-    · by_cases h1 : T = n <;> by_cases h2 : T < n <;> by_cases h3 : T < dep <;>
-        simp [h1, h2, h3] <;> omega
+/-- Soundness of `from_parts`: the ranks are the rank bits of `packed_ranks`,
+`populated` is `i < depth` and `bounded` is `depth ≤ MAX_DEPTH`. -/
+theorem from_parts_sound (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p)
+    (packed_ranks depth count : FpVar (ZMod p)) (hpacked : ¬ packed_ranks.isConstant)
+    (k : Counters) (a : Assignment (ZMod p))
+    (h : ConstraintsHold a ((StateVar.from_parts D packed_ranks depth count).run k).2) :
+    let s := ((StateVar.from_parts D packed_ranks depth count).run k).1
+    let N := (packed_ranks.eval a).val
+    let dep := (depth.eval a).val
+    N < 2 ^ (RANK_BITS * D) ∧
+      s.ranks.map (·.eval a) = (List.range D).map (fun i => (State.rank_bits N i : ZMod p)) ∧
+      s.populated.map (·.eval a) = (List.range D).map (fun i => if i < dep then 1 else 0) ∧
+      IsBit a s.bounded (dep ≤ D) := by
+  simp only [StateVar.from_parts, CS.run_bind, CS.run_pure, constraintsHold_append] at h ⊢
+  obtain ⟨hunpack, hmask, -⟩ := h
+  obtain ⟨hN, hranks⟩ := unpack_sound D hD packed_ranks hpacked k a hunpack
+  obtain ⟨hpop, hbnd⟩ := prefix_mask_sound D (D_lt_p hD) depth _ a hmask
+  exact ⟨hN, hranks, hpop, hbnd⟩
 
-/-- Soundness of `StateVar::rank` on a one-hot `tree` selecting `T`: the rank
-of tree `T` and whether `T` is below `depth`, both zero when `T` falls outside
-`0..MAX_DEPTH`. -/
+/-- Soundness of `StateVar::rank` on a one-hot `tree` selecting tree `T`: the rank of
+tree `T` (`0` when `T` is out of range), and whether `T` is a live tree of a
+frontier with depth in range. -/
 theorem rank_sound (D T dep : Nat) (R : Nat → ZMod p) (s : StateVar (ZMod p))
     (tree : List (Boolean (ZMod p))) (k : Counters) (a : Assignment (ZMod p))
     (htree : tree.map (·.eval a) = (List.range D).map (fun i => if T = i then 1 else 0))
     (hranks : s.ranks.map (·.eval a) = (List.range D).map R)
     (hpop : s.populated.map (·.eval a) = (List.range D).map (fun i => if i < dep then 1 else 0))
+    (hbnd : IsBit a s.bounded (dep ≤ D))
     (h : ConstraintsHold a ((s.rank tree).run k).2) :
     ((s.rank tree).run k).1.1.eval a = (if T < D then R T else 0) ∧
-      ((s.rank tree).run k).1.2.eval a =
-        (if T < D ∧ T < dep then 1 else 0) * s.bounded.eval a := by
+      IsBit a ((s.rank tree).run k).1.2 (T < D ∧ T < dep ∧ dep ≤ D) := by
   simp only [StateVar.rank, CS.run_bind, CS.run_pure, constraintsHold_append] at h ⊢
   obtain ⟨hloop, hand, -⟩ := h
-  -- The loop on values: select into the rank, `or` the live bit.
-  let g : ZMod p × ZMod p → (ZMod p × ZMod p) × ZMod p → ZMod p × ZMod p :=
-    fun acc x => (acc.1 + x.1.1 * (x.1.2 - acc.1), 1 - (1 - acc.2) * (1 - x.1.1 * x.2))
-  let φ : (Boolean (ZMod p) × FpVar (ZMod p)) × Boolean (ZMod p) → (ZMod p × ZMod p) × ZMod p :=
-    Prod.map (Prod.map (·.eval a) (·.eval a)) (·.eval a)
-  have loop := CS.foldlM_sound _ (fun _ => True)
-    (fun acc : FpVar (ZMod p) × Boolean (ZMod p) => (acc.1.eval a, acc.2.eval a))
-    (fun acc x => g acc (φ x))
-    a (fun acc x k' _ h' => by
-      simp only [CS.run_bind, CS.run_pure, constraintsHold_append] at h' ⊢
-      refine ⟨trivial, ?_⟩
-      rw [FpVar.conditionally_select_sound _ _ _ _ a h'.1, Boolean.or_sound _ _ _ a h'.2.2.1,
-        Boolean.and_sound _ _ _ a h'.2.1]
-      rfl) _ _ k trivial hloop
-  have hlist : ((tree.zip s.ranks).zip s.populated).map φ =
-      (List.range D).map fun i => ((if T = i then 1 else 0, R i), if i < dep then 1 else 0) := by
-    simp only [φ]
-    rw [← List.zip_map, ← List.zip_map, htree, hranks, hpop, List.zip_map', List.zip_map']
-  have hfold := loop.2
-  rw [← List.foldl_map (f := φ) (g := g), hlist, List.foldl_map] at hfold
-  simp only [FpVar.eval_zero, Boolean.eval_FALSE, g] at hfold
-  rw [rank_foldl] at hfold
-  simp only [Prod.mk.injEq] at hfold
-  rw [Boolean.and_sound _ _ _ a hand, hfold.1, hfold.2]
-  exact ⟨rfl, rfl⟩
+  have hlen : ((tree.zip s.ranks).zip s.populated).length = D := by
+    simp [length_of_map_eq htree, length_of_map_eq hranks, length_of_map_eq hpop]
+  -- After `i` trees, `rank` is tree `T`'s if `T < i`, and `live` is `T < i ∧ T < depth`.
+  have loop := CS.foldlM_inv _ a ((tree.zip s.ranks).zip s.populated)
+    (fun i (acc : FpVar (ZMod p) × Boolean (ZMod p)) =>
+      acc.1.eval a = (if T < i then R T else 0) ∧ IsBit a acc.2 (T < i ∧ T < dep))
+    _ k ⟨by simp, IsBit.false.congr (by simp)⟩
+    (fun i hi acc k' ⟨hrank, hlive⟩ h' => by
+      have hiD : i < D := hlen ▸ hi
+      have ht : i < tree.length := by rw [length_of_map_eq htree]; exact hiD
+      have hr : i < s.ranks.length := by rw [length_of_map_eq hranks]; exact hiD
+      have hp : i < s.populated.length := by rw [length_of_map_eq hpop]; exact hiD
+      have hhit : IsBit a tree[i] (T = i) := getElem_of_map_eq htree i ht
+      have hri : s.ranks[i].eval a = R i := getElem_of_map_eq hranks i hr
+      have hpi : IsBit a s.populated[i] (i < dep) := getElem_of_map_eq hpop i hp
+      simp only [List.getElem_zip, CS.run_bind, CS.run_pure, constraintsHold_append] at h' ⊢
+      refine ⟨?_, (or_bit hlive (and_bit hhit hpi h'.2.1) h'.2.2.1).congr (by omega)⟩
+      rw [select_bit hhit h'.1, hri, hrank]
+      by_cases hTi : T = i
+      · simp [hTi]
+      · simp only [hTi, ↓reduceIte]
+        exact if_congr (by omega) rfl rfl)
+    hloop
+  rw [hlen] at loop
+  exact ⟨loop.1, (and_bit loop.2 hbnd hand).congr (by omega)⟩
 
 end SkewMmr

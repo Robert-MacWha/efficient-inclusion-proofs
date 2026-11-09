@@ -28,11 +28,14 @@ def try_from_parts (MAX_DEPTH packed_ranks depth count : Nat) : Option State :=
   else if 2 ^ (RANK_BITS * MAX_DEPTH) ≤ packed_ranks then none
   else some ⟨packed_ranks, depth, count⟩
 
-/-- `State::rank`: bits `6 * tree .. 6 * tree + 6` of the word, or `none` when
-`tree` sits at or above `depth`. -/
+/-- Bits `6 * tree .. 6 * tree + 6` of the word `packed_ranks`. -/
+def rank_bits (packed_ranks tree : Nat) : Nat :=
+  packed_ranks / 2 ^ (RANK_BITS * tree) % 2 ^ RANK_BITS
+
+/-- `State::rank`: the rank bits of `tree`, or `none` when `tree` sits at or above
+`depth`. -/
 def rank (s : State) (tree : Nat) : Option Nat :=
-  if s.depth ≤ tree then none
-  else some (s.packed_ranks / 2 ^ (RANK_BITS * tree) % 2 ^ RANK_BITS)
+  if s.depth ≤ tree then none else some (rank_bits s.packed_ranks tree)
 
 end State
 
