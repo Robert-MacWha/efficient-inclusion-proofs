@@ -7,10 +7,10 @@
    "type": "git",
    "subDir": "lean",
    "scope": "",
-   "rev": "44b87c6264727a8e438670de518b21831864f5a2",
+   "rev": "fe358d7517fddeb8d386fb3a4daaab87465ee286",
    "name": "\u00abark-r1cs\u00bb",
    "manifestFile": "lake-manifest.json",
-   "inputRev": "claude/happy-einstein-zzykf1",
+   "inputRev": "main",
    "inherited": false,
    "configFile": "lakefile.toml"
   },
