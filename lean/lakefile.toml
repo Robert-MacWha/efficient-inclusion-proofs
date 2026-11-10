@@ -9,7 +9,7 @@ relaxedAutoImplicit = false
 name = "ark-r1cs"
 git = "https://github.com/Robert-MacWha/lean-ark-r1cs"
 subDir = "lean"
-rev = "main"
+rev = "claude/happy-einstein-zzykf1"
 
 [[lean_lib]]
 name = "SkewMmr"

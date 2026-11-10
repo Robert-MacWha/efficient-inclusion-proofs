@@ -150,7 +150,7 @@ theorem select_root_sound (D T : Nat) (tree : List (Boolean (ZMod p)))
     (hroots : roots.length = D) (h : ConstraintsHold a ((select_root tree roots).run k).2) :
     ((select_root tree roots).run k).1.eval a =
       if T < D then (roots.map (·.eval a)).getD T 0 else 0 := by
-  have hlen : (tree.zip roots).length = D := by simp [length_of_map_eq htree, hroots]
+  have hlen : (tree.zip roots).length = D := by simp [length_of_map_eq_range htree, hroots]
   -- After `i` entries, `root` is root `T` if `T < i`.
   have loop := CS.foldlM_inv _ a (tree.zip roots)
     (fun i (r : FpVar (ZMod p)) => r.eval a =
@@ -158,10 +158,10 @@ theorem select_root_sound (D T : Nat) (tree : List (Boolean (ZMod p)))
     _ k (by simp)
     (fun i hi r k' hr h' => by
       have hiD : i < D := hlen ▸ hi
-      have ht : i < tree.length := by rw [length_of_map_eq htree]; exact hiD
-      have hhit : IsBit a tree[i] (T = i) := getElem_of_map_eq htree i ht
+      have ht : i < tree.length := by rw [length_of_map_eq_range htree]; exact hiD
+      have hhit : IsBit a tree[i] (T = i) := getElem_of_map_eq_range htree i ht
       simp only [List.getElem_zip] at h' ⊢
-      rw [select_bit hhit h', hr]
+      rw [FpVar.select_bit hhit h', hr]
       by_cases hTi : T = i
       · subst hTi
         simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (hroots ▸ hiD)]
@@ -179,19 +179,19 @@ theorem check_steps_sound (D L R : Nat) (active within : List (Boolean (ZMod p))
     (hvalid : IsBit a valid P) (h : ConstraintsHold a ((check_steps active within valid).run k).2) :
     IsBit a ((check_steps active within valid).run k).1 (P ∧ ∀ i < D, i < L → i < R) := by
   have hlen : (active.zip within).length = D := by
-    simp [length_of_map_eq hactive, length_of_map_eq hwithin]
+    simp [length_of_map_eq_range hactive, length_of_map_eq_range hwithin]
   -- After `i` entries, `valid` adds `j < path_len → j < rank` for each `j < i`.
   have loop := CS.foldlM_inv _ a (active.zip within)
     (fun i (v : Boolean (ZMod p)) => IsBit a v (P ∧ ∀ j < i, j < L → j < R))
     _ k (hvalid.congr (by simp))
     (fun i hi v k' hv h' => by
       have hiD : i < D := hlen ▸ hi
-      have ha : i < active.length := by rw [length_of_map_eq hactive]; exact hiD
-      have hw : i < within.length := by rw [length_of_map_eq hwithin]; exact hiD
-      have hact : IsBit a active[i] (i < L) := getElem_of_map_eq hactive i ha
-      have hwin : IsBit a within[i] (i < R) := getElem_of_map_eq hwithin i hw
+      have ha : i < active.length := by rw [length_of_map_eq_range hactive]; exact hiD
+      have hw : i < within.length := by rw [length_of_map_eq_range hwithin]; exact hiD
+      have hact : IsBit a active[i] (i < L) := getElem_of_map_eq_range hactive i ha
+      have hwin : IsBit a within[i] (i < R) := getElem_of_map_eq_range hwithin i hw
       simp only [List.getElem_zip, CS.run_bind, constraintsHold_append] at h' ⊢
-      refine (and_bit hv (or_bit hwin (not_bit hact) h'.1) h'.2).congr ?_
+      refine (Boolean.and_bit hv (Boolean.or_bit hwin (Boolean.not_bit hact) h'.1) h'.2).congr ?_
       rw [forall_lt_succ]
       constructor
       · rintro ⟨⟨hP, hj⟩, hi⟩; exact ⟨hP, hj, fun hiL => hi.resolve_right (not_not.mpr hiL)⟩
@@ -210,7 +210,7 @@ theorem walk_sound (D L : Nat) (H : HasherGadget (ZMod p)) (path : List (StepVar
     ((walk H path active current).run k).1.eval a =
       ((path.map (·.decode a)).take L).foldl (fun c step => step.fold H.hash_native c)
         (current.eval a) := by
-  have hlen : (path.zip active).length = D := by simp [hpath, length_of_map_eq hactive]
+  have hlen : (path.zip active).length = D := by simp [hpath, length_of_map_eq_range hactive]
   -- After `i` steps, `current` has folded in the first `min i path_len` steps.
   have loop := CS.foldlM_inv _ a (path.zip active)
     (fun i (c : FpVar (ZMod p)) => c.eval a =
@@ -219,11 +219,11 @@ theorem walk_sound (D L : Nat) (H : HasherGadget (ZMod p)) (path : List (StepVar
     _ k (by simp)
     (fun i hi c k' hc h' => by
       have hiD : i < D := hlen ▸ hi
-      have ha : i < active.length := by rw [length_of_map_eq hactive]; exact hiD
+      have ha : i < active.length := by rw [length_of_map_eq_range hactive]; exact hiD
       have hp : i < path.length := hpath ▸ hiD
-      have hact : IsBit a active[i] (i < L) := getElem_of_map_eq hactive i ha
+      have hact : IsBit a active[i] (i < L) := getElem_of_map_eq_range hactive i ha
       simp only [List.getElem_zip, CS.run_bind, constraintsHold_append] at h' ⊢
-      rw [select_bit hact h'.2, StepVar.fold_sound H _ _ _ a
+      rw [FpVar.select_bit hact h'.2, StepVar.fold_sound H _ _ _ a
         (hright _ (List.getElem_mem (hpath ▸ hiD))) h'.1, hc]
       by_cases hiL : i < L
       · simp only [hiL, ↓reduceIte]
@@ -274,7 +274,7 @@ theorem accept_iff (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p)
     have hR : Rf.val = R := by
       rw [hRf]; simp only [hTD, ↓reduceIte]; exact ZMod.val_cast_of_lt hRlt
     have hleaf : Lf = Rf ↔ Lf.val = R := by
-      rw [hRf]; simp only [hTD, ↓reduceIte]; exact eq_natCast_iff _ hRlt
+      rw [hRf]; simp only [hTD, ↓reduceIte]; exact ZMod.eq_natCast_iff _ hRlt
     have hroot : rootsE[Tf.val]? = some (rootsE.getD Tf.val 0) := by
       rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (by omega)]; rfl
     -- With `L ≤ D`, every step below `L` sitting below the rank is `L ≤ rank`.
@@ -340,15 +340,15 @@ theorem verify_sound (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p) (H : HasherGadget 
   obtain ⟨hwithinE, hrbE⟩ := prefix_mask_sound D hDp _ _ a hrm
   -- `valid`: a live tree, both bounds, and `path_len <= rank`.
   have hvalidE := check_steps_sound D _ _ _ _ _ _ _ a hactE hwithinE
-    (and_bit (and_bit hliveE hpbE hv1) hrbE hv2) hvalid
+    (Boolean.and_bit (Boolean.and_bit hliveE hpbE hv1) hrbE hv2) hvalid
   -- `current`: the leaf itself, or the hash of the node and its children.
-  have hstart := select_bit (FpVar.is_eq_sound _ _ _ a hleaf) hcur0
+  have hstart := FpVar.select_bit (FpVar.is_eq_sound _ _ _ a hleaf) hcur0
   rw [H.sound _ _ _ _ a hnode] at hstart
   -- The walk up the path.
   have hcurE := walk_sound D _ H proof.path _ _ _ a hpath hright hactE hwalk
   rw [hstart] at hcurE
   -- `valid & current.is_eq(&root)`, against the specification.
-  rw [and_bit hvalidE (is_eq_bit _ _ heq) hout]
+  rw [Boolean.and_bit hvalidE (FpVar.is_eq_bit _ _ heq) hout]
   refine if_congr ?_ rfl rfl
   rw [hcurE, hrootE]
   exact accept_iff D hD H.hash_native _ _ _ _ _ _ _ _ _ hrankE _ (by simpa using hroots) _
