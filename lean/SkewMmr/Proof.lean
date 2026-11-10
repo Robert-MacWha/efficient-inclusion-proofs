@@ -3,16 +3,10 @@
 
 The circuit, and its soundness theorem `verify_sound`: for any assignment
 satisfying the constraints, the output bit is `1` exactly when the native
-verifier `Proof::verify` accepts the proof read off the assignment, the
-frontier is one `State::try_from_parts` accepts, and the selected tree has
-rank at most `MAX_DEPTH`.
-
-The last condition is the one place the circuit is stricter than the native
-verifier. It never rejects a real frontier: building a tree of rank `r`
-takes `r + 1` trees on the stack at once, so a `SkewMmr` with at most
-`MAX_DEPTH` trees only holds trees of rank below `MAX_DEPTH`.
+verifier `Proof::verify` accepts the proof read off the assignment.
 -/
-import SkewMmr.State
+import SkewMmr.Mask
+import SkewMmr.Native
 
 namespace SkewMmr
 
@@ -63,12 +57,6 @@ def select_root (tree : List (Boolean F)) (roots : List (FpVar F)) : CS F (FpVar
   (tree.zip roots).foldlM
     (fun root (x : Boolean F × FpVar F) => FpVar.conditionally_select x.1 x.2 root) FpVar.zero
 
-/-- The `valid &= within | !active` loop of `ProofVar::verify`. -/
-def check_steps (active within : List (Boolean F)) (valid : Boolean F) : CS F (Boolean F) :=
-  (active.zip within).foldlM (fun valid (x : Boolean F × Boolean F) => do
-    let w ← x.2.or x.1.not
-    valid.and w) valid
-
 /-- The walk up the path in `ProofVar::verify`: fold in each active step. -/
 def walk (H : HasherGadget F) (path : List (StepVar F)) (active : List (Boolean F))
     (current : FpVar F) : CS F (FpVar F) :=
@@ -76,30 +64,16 @@ def walk (H : HasherGadget F) (path : List (StepVar F)) (active : List (Boolean 
     let folded ← x.1.fold H current
     FpVar.conditionally_select x.2 folded current) current
 
-/-- `ProofVar::verify`. The three loops are `select_root`, `check_steps` and `walk`. -/
+/-- `ProofVar::verify`. The two loops are `select_root` and `walk`. -/
 def ProofVar.verify (MAX_DEPTH : Nat) (H : HasherGadget F) (proof : ProofVar F)
-    (element : FpVar F) (state : StateVar F) (roots : List (FpVar F)) : CS F (Boolean F) := do
+    (element : FpVar F) (roots : List (FpVar F)) : CS F (Boolean F) := do
   let tree ← one_hot MAX_DEPTH proof.tree
-  let r ← state.rank tree
   let root ← select_root tree roots
   let pm ← prefix_mask MAX_DEPTH proof.path_len
-  let rm ← prefix_mask MAX_DEPTH r.1
-  let valid ← r.2.and pm.2
-  let valid ← valid.and rm.2
-  let valid ← check_steps pm.1 rm.1 valid
-  let is_leaf ← EqGadget.is_eq (F := F) proof.path_len r.1
   let node ← H.hash element proof.children.1 proof.children.2
-  let current ← FpVar.conditionally_select is_leaf element node
-  let current ← walk H proof.path pm.1 current
+  let current ← walk H proof.path pm.1 node
   let eq ← EqGadget.is_eq (F := F) current root
-  valid.and eq
-
-/-- `ProofVar::verify` on a `StateVar` built from its three words. -/
-def verify_circuit [IntoBigInt F] (MAX_DEPTH : Nat) (H : HasherGadget F)
-    (packed_ranks depth count : FpVar F) (proof : ProofVar F) (element : FpVar F)
-    (roots : List (FpVar F)) : CS F (Boolean F) := do
-  let state ← StateVar.from_parts MAX_DEPTH packed_ranks depth count
-  proof.verify MAX_DEPTH H element state roots
+  pm.2.and eq
 
 end Gadgets
 
@@ -109,20 +83,18 @@ variable {p : Nat} [Fact p.Prime]
 def StepVar.decode (a : Assignment (ZMod p)) (s : StepVar (ZMod p)) : Step (ZMod p) :=
   ⟨s.element.eval a, s.sibling.eval a, decide (s.right.eval a = 1)⟩
 
-/-- The native proof an assignment describes: every field element read
-through `ZMod.val` where Rust holds an integer. -/
-def decode (a : Assignment (ZMod p)) (packed_ranks depth count : FpVar (ZMod p))
-    (proof : ProofVar (ZMod p)) (element : FpVar (ZMod p)) (roots : List (FpVar (ZMod p))) :
-    Proof (ZMod p) where
+/-- The native proof an assignment describes: every field element read through
+`ZMod.val` where Rust holds an integer. -/
+def decode (a : Assignment (ZMod p)) (proof : ProofVar (ZMod p)) (element : FpVar (ZMod p))
+    (roots : List (FpVar (ZMod p))) : Proof (ZMod p) where
   roots := roots.map (·.eval a)
-  state := ⟨(packed_ranks.eval a).val, (depth.eval a).val, (count.eval a).val⟩
   element := element.eval a
   tree := (proof.tree.eval a).val
   children := (proof.children.1.eval a, proof.children.2.eval a)
   path_len := (proof.path_len.eval a).val
   path := proof.path.map (·.decode a)
 
-/-! ### Steps -/
+/-! ### Lemmas -/
 
 /-- Soundness of `StepVar::fold` on a bit `right`: the native `Step::fold`. -/
 theorem StepVar.fold_sound (H : HasherGadget (ZMod p)) (s : StepVar (ZMod p))
@@ -135,21 +107,11 @@ theorem StepVar.fold_sound (H : HasherGadget (ZMod p)) (s : StepVar (ZMod p))
     FpVar.conditionally_select_sound _ _ _ _ a h.2.1]
   rcases hright with hr | hr <;> simp [hr, StepVar.decode, Step.fold]
 
-theorem forall_lt_succ {P : Nat → Prop} {i : Nat} :
-    (∀ j < i + 1, P j) ↔ (∀ j < i, P j) ∧ P i :=
-  ⟨fun h => ⟨fun j hj => h j (by omega), h i (by omega)⟩,
-    fun h j hj => if hji : j < i then h.1 j hji else (show j = i by omega) ▸ h.2⟩
-
-/-! ### Loops -/
-
-/-- Soundness of `select_root` on a one-hot `tree` selecting `T`: root `T`, or `0`
-when `T` is out of range. -/
 theorem select_root_sound (D T : Nat) (tree : List (Boolean (ZMod p)))
     (roots : List (FpVar (ZMod p))) (k : Counters) (a : Assignment (ZMod p))
     (htree : tree.map (·.eval a) = (List.range D).map (fun i => if T = i then 1 else 0))
     (hroots : roots.length = D) (h : ConstraintsHold a ((select_root tree roots).run k).2) :
-    ((select_root tree roots).run k).1.eval a =
-      if T < D then (roots.map (·.eval a)).getD T 0 else 0 := by
+    ((select_root tree roots).run k).1.eval a = (roots.map (·.eval a)).getD T 0 := by
   have hlen : (tree.zip roots).length = D := by simp [length_of_map_eq_range htree, hroots]
   -- After `i` entries, `root` is root `T` if `T < i`.
   have loop := CS.foldlM_inv _ a (tree.zip roots)
@@ -168,39 +130,13 @@ theorem select_root_sound (D T : Nat) (tree : List (Boolean (ZMod p)))
       · simp only [hTi, ↓reduceIte]
         exact if_congr (by omega) rfl rfl)
     h
-  rwa [hlen] at loop
+  rw [hlen] at loop
+  unfold select_root
+  rw [loop]
+  split_ifs with hT
+  · rfl
+  · rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none (by simp [hroots]; omega)]; rfl
 
-/-- Soundness of `check_steps`: `valid` gains `∀ i < MAX_DEPTH, i < path_len → i < rank`,
-which is `path_len ≤ rank` when `path_len ≤ MAX_DEPTH`. -/
-theorem check_steps_sound (D L R : Nat) (active within : List (Boolean (ZMod p)))
-    (valid : Boolean (ZMod p)) (P : Prop) [Decidable P] (k : Counters) (a : Assignment (ZMod p))
-    (hactive : active.map (·.eval a) = (List.range D).map (fun i => if i < L then 1 else 0))
-    (hwithin : within.map (·.eval a) = (List.range D).map (fun i => if i < R then 1 else 0))
-    (hvalid : IsBit a valid P) (h : ConstraintsHold a ((check_steps active within valid).run k).2) :
-    IsBit a ((check_steps active within valid).run k).1 (P ∧ ∀ i < D, i < L → i < R) := by
-  have hlen : (active.zip within).length = D := by
-    simp [length_of_map_eq_range hactive, length_of_map_eq_range hwithin]
-  -- After `i` entries, `valid` adds `j < path_len → j < rank` for each `j < i`.
-  have loop := CS.foldlM_inv _ a (active.zip within)
-    (fun i (v : Boolean (ZMod p)) => IsBit a v (P ∧ ∀ j < i, j < L → j < R))
-    _ k (hvalid.congr (by simp))
-    (fun i hi v k' hv h' => by
-      have hiD : i < D := hlen ▸ hi
-      have ha : i < active.length := by rw [length_of_map_eq_range hactive]; exact hiD
-      have hw : i < within.length := by rw [length_of_map_eq_range hwithin]; exact hiD
-      have hact : IsBit a active[i] (i < L) := getElem_of_map_eq_range hactive i ha
-      have hwin : IsBit a within[i] (i < R) := getElem_of_map_eq_range hwithin i hw
-      simp only [List.getElem_zip, CS.run_bind, constraintsHold_append] at h' ⊢
-      refine (Boolean.and_bit hv (Boolean.or_bit hwin (Boolean.not_bit hact) h'.1) h'.2).congr ?_
-      rw [forall_lt_succ]
-      constructor
-      · rintro ⟨⟨hP, hj⟩, hi⟩; exact ⟨hP, hj, fun hiL => hi.resolve_right (not_not.mpr hiL)⟩
-      · rintro ⟨hP, hj, hi⟩; exact ⟨⟨hP, hj⟩, by by_cases hiL : i < L <;> simp_all⟩)
-    h
-  rwa [hlen] at loop
-
-/-- Soundness of `walk` on bit `right`s: the native fold over the first `path_len`
-steps. -/
 theorem walk_sound (D L : Nat) (H : HasherGadget (ZMod p)) (path : List (StepVar (ZMod p)))
     (active : List (Boolean (ZMod p))) (current : FpVar (ZMod p)) (k : Counters)
     (a : Assignment (ZMod p)) (hpath : path.length = D)
@@ -241,117 +177,34 @@ theorem walk_sound (D L : Nat) (H : HasherGadget (ZMod p)) (path : List (StepVar
   · rw [show min D L = D by omega, List.take_of_length_le (by simp [hpath]),
       List.take_of_length_le (by simp [hpath]; omega)]
 
-/-! ### The output against the native verifier -/
-
-/-- What the circuit's output bit says, against the specification. Here `Tf`,
-`depf`, `Lf` and `Nf` are the values of `tree`, `depth`, `path_len` and
-`packed_ranks`, and `Rf` is the rank the circuit selected. -/
-theorem accept_iff (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p)
-    (Hn : ZMod p → ZMod p → ZMod p → ZMod p) (Tf depf Lf Nf cnt elem c0 c1 Rf : ZMod p)
-    (hRf : Rf = if Tf.val < D then (State.rank_bits Nf.val Tf.val : ZMod p) else 0)
-    (rootsE : List (ZMod p)) (hroots : rootsE.length = D)
-    (ps : List (Step (ZMod p))) (hps : ps.length = D) (hN : Nf.val < 2 ^ (RANK_BITS * D)) :
-    ((((Tf.val < D ∧ Tf.val < depf.val ∧ depf.val ≤ D) ∧ Lf.val ≤ D) ∧ Rf.val ≤ D) ∧
-        ∀ i < D, i < Lf.val → i < Rf.val) ∧
-      (ps.take Lf.val).foldl (fun c step => step.fold Hn c)
-          (if Lf = Rf then elem else Hn elem c0 c1) =
-        (if Tf.val < D then rootsE.getD Tf.val 0 else 0) ↔
-    (State.try_from_parts D Nf.val depf.val cnt.val).isSome ∧
-      (∀ r ∈ State.rank ⟨Nf.val, depf.val, cnt.val⟩ Tf.val, r ≤ D) ∧
-      Proof.verify Hn ⟨rootsE, ⟨Nf.val, depf.val, cnt.val⟩, elem, Tf.val, (c0, c1), Lf.val, ps⟩ := by
-  have hfrom : (State.try_from_parts D Nf.val depf.val cnt.val).isSome = true ↔
-      depf.val ≤ D := by
-    unfold State.try_from_parts
-    split_ifs <;> simp <;> omega
-  rw [hfrom]
-  simp only [Proof.verify, State.rank, hps]
-  by_cases hlive : Tf.val < D ∧ Tf.val < depf.val
-  · -- A live tree: the circuit's rank and root are tree `T`'s.
-    obtain ⟨hTD, hTdep⟩ := hlive
-    set R := State.rank_bits Nf.val Tf.val
-    have hRlt : R < p := lt_of_lt_of_le (rank_bits_lt _ _) (le_trans
-      (Nat.pow_le_pow_right (by norm_num) (by simp only [RANK_BITS]; omega)) hD.le)
-    have hR : Rf.val = R := by
-      rw [hRf]; simp only [hTD, ↓reduceIte]; exact ZMod.val_cast_of_lt hRlt
-    have hleaf : Lf = Rf ↔ Lf.val = R := by
-      rw [hRf]; simp only [hTD, ↓reduceIte]; exact ZMod.eq_natCast_iff _ hRlt
-    have hroot : rootsE[Tf.val]? = some (rootsE.getD Tf.val 0) := by
-      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem (by omega)]; rfl
-    -- With `L ≤ D`, every step below `L` sitting below the rank is `L ≤ rank`.
-    have hsteps : Lf.val ≤ D → ((∀ i < D, i < Lf.val → i < R) ↔ Lf.val ≤ R) := fun hLD =>
-      ⟨fun h => by
-        by_contra hc
-        exact lt_irrefl R (h R (by omega) (by omega)), fun h i _ hi => by omega⟩
-    simp only [hR, hleaf, hroot, hTD, hTdep, not_le.mpr hTdep, true_and, ↓reduceIte,
-      Option.mem_def, Option.some.injEq, forall_eq']
-    by_cases h1 : depf.val ≤ D <;> by_cases h2 : Lf.val ≤ D <;> by_cases h3 : R ≤ D <;>
-      by_cases h4 : Lf.val ≤ R <;> simp [h1, h2, h3, h4, hsteps]
-  · -- Not a live tree: the circuit rejects, and so does `Proof::verify`.
-    by_cases hTD : Tf.val < D
-    · have hTdep : depf.val ≤ Tf.val := by omega
-      simp [hTD, hTdep, not_lt.mpr hTdep]
-    · simp [hTD, List.getElem?_eq_none (show rootsE.length ≤ Tf.val by omega)]
-
 /-! ### Soundness -/
 
-/-- Soundness of the skew-MMR inclusion proof circuit.
+/-- Soundness of the skew-MMR inclusion proof circuit: for any assignment satisfying
+the constraints, the output bit is `1` exactly when `Proof::verify` accepts the proof
+the assignment describes (`decode`).
 
-For any assignment satisfying the constraints, the output bit is `1` exactly
-when, for the proof the assignment describes (`decode`):
-
-* `State::try_from_parts` accepts the frontier (of its two checks, the
-  circuit enforces `packed_ranks < 2^(RANK_BITS * MAX_DEPTH)` and reports
-  `depth ≤ MAX_DEPTH`),
-* the selected tree, if live, has rank at most `MAX_DEPTH`, and
-* the native verifier `Proof::verify` accepts.
-
-Assumptions: the field is `ZMod p` with `2^(RANK_BITS * MAX_DEPTH) < p` (the
-`MODULUS_BIT_SIZE > RANK_BITS * MAX_DEPTH` assertion), `packed_ranks` is
-allocated (not a constant), `roots` and `path` have `MAX_DEPTH` entries, and
-each `right` is a bit (as `Boolean::new_witness` makes it). -/
-theorem verify_sound (D : Nat) (hD : 2 ^ (RANK_BITS * D) < p) (H : HasherGadget (ZMod p))
-    (packed_ranks depth count : FpVar (ZMod p)) (hpacked : ¬ packed_ranks.isConstant)
+Assumptions: the field is `ZMod p` with `MAX_DEPTH < p`, `roots` and `path` have
+`MAX_DEPTH` entries, and each `right` is a bit (as `Boolean::new_witness` makes it). -/
+theorem verify_sound (D : Nat) (hD : D < p) (H : HasherGadget (ZMod p))
     (proof : ProofVar (ZMod p)) (hpath : proof.path.length = D) (element : FpVar (ZMod p))
     (roots : List (FpVar (ZMod p))) (hroots : roots.length = D) (k : Counters)
     (a : Assignment (ZMod p))
     (hright : ∀ s ∈ proof.path, s.right.eval a = 0 ∨ s.right.eval a = 1)
-    (h : ConstraintsHold a
-      ((verify_circuit D H packed_ranks depth count proof element roots).run k).2) :
-    ((verify_circuit D H packed_ranks depth count proof element roots).run k).1.eval a =
-      let q := decode a packed_ranks depth count proof element roots
-      if (State.try_from_parts D q.state.packed_ranks q.state.depth q.state.count).isSome ∧
-        (∀ r ∈ q.state.rank q.tree, r ≤ D) ∧ q.verify H.hash_native
-      then 1 else 0 := by
-  have hDp := D_lt_p hD
-  simp only [verify_circuit, ProofVar.verify, CS.run_bind, constraintsHold_append] at h ⊢
-  obtain ⟨hfp, htree, hrank, hroot, hpm, hrm, hv1, hv2, hvalid, hleaf, hnode, hcur0, hwalk, heq,
-    hout⟩ := h
-  -- `StateVar::from_parts`: the ranks, `populated` and `bounded` of the frontier.
-  obtain ⟨hN, hranksE, hpopE, hbndE⟩ :=
-    from_parts_sound D hD packed_ranks depth count hpacked k a hfp
-  -- `let tree = one_hot(&self.tree)`: the bit of `tree = i` for each `i`.
-  have htreeE := one_hot_sound D hDp.le proof.tree _ a htree
-  -- `let (rank, live) = state.rank(&tree)`.
-  obtain ⟨hrankE, hliveE⟩ := rank_sound D _ _ _ _ _ _ a htreeE hranksE hpopE hbndE hrank
-  -- The root of the selected tree.
+    (h : ConstraintsHold a ((proof.verify D H element roots).run k).2) :
+    ((proof.verify D H element roots).run k).1.eval a =
+      if (decode a proof element roots).verify H.hash_native then 1 else 0 := by
+  simp only [ProofVar.verify, CS.run_bind, constraintsHold_append] at h ⊢
+  obtain ⟨htree, hroot, hpm, hnode, hwalk, heq, hout⟩ := h
+  -- `let tree = one_hot(&self.tree)`, and the root it selects.
+  have htreeE := one_hot_sound D hD.le proof.tree _ a htree
   have hrootE := select_root_sound D _ _ roots _ a htreeE hroots hroot
-  -- `let (active, path_bounded)` and `let (within, rank_bounded)`.
-  obtain ⟨hactE, hpbE⟩ := prefix_mask_sound D hDp proof.path_len _ a hpm
-  obtain ⟨hwithinE, hrbE⟩ := prefix_mask_sound D hDp _ _ a hrm
-  -- `valid`: a live tree, both bounds, and `path_len <= rank`.
-  have hvalidE := check_steps_sound D _ _ _ _ _ _ _ a hactE hwithinE
-    (Boolean.and_bit (Boolean.and_bit hliveE hpbE hv1) hrbE hv2) hvalid
-  -- `current`: the leaf itself, or the hash of the node and its children.
-  have hstart := FpVar.select_bit (FpVar.is_eq_sound _ _ _ a hleaf) hcur0
-  rw [H.sound _ _ _ _ a hnode] at hstart
-  -- The walk up the path.
+  -- `let (active, bounded) = prefix_mask(&self.path_len)`.
+  obtain ⟨hactE, hbndE⟩ := prefix_mask_sound D hD proof.path_len _ a hpm
+  -- The node, then the walk up the path.
   have hcurE := walk_sound D _ H proof.path _ _ _ a hpath hright hactE hwalk
-  rw [hstart] at hcurE
-  -- `valid & current.is_eq(&root)`, against the specification.
-  rw [Boolean.and_bit hvalidE (FpVar.is_eq_bit _ _ heq) hout]
-  refine if_congr ?_ rfl rfl
-  rw [hcurE, hrootE]
-  exact accept_iff D hD H.hash_native _ _ _ _ _ _ _ _ _ hrankE _ (by simpa using hroots) _
-    (by simpa using hpath) hN
+  rw [H.sound _ _ _ _ a hnode] at hcurE
+  -- `bounded & current.is_eq(&root)`, against `Proof::verify`.
+  rw [Boolean.and_bit hbndE (FpVar.is_eq_bit _ _ heq) hout, hcurE, hrootE]
+  simp [decode, Proof.verify, hpath]
 
 end SkewMmr
