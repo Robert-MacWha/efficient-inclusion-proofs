@@ -1,5 +1,7 @@
 # Efficient inclusion proofs
 
+> [AI:W](https://0rwx.com/?ref=explainx)
+
 This repo contains set commitment structures that allow a caller to cheaply prove that an element is included in a given set. The goal is to create a structure that can replace leanIMT for privacy protocols. This means optimizing for:
 - Low gas cost when appending an element to the set.
 - Low gas cost when verifying the root of the set commitment on-chain.
