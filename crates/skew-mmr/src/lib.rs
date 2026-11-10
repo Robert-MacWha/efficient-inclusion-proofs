@@ -31,7 +31,7 @@ struct Node<E: Clone> {
     children: Option<Box<(Node<E>, Node<E>)>>,
 }
 
-impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     pub fn new() -> Self {
         Self {
             stack: from_fn(|_| None),
@@ -46,7 +46,7 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
         self.len += 1;
 
         if self.depth < 2 || self.rank(self.depth - 1) != self.rank(self.depth - 2) {
-            self.push(Node::leaf(element));
+            self.push(Node::leaf::<H>(element));
             return;
         }
 
@@ -69,7 +69,6 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
 
         Proof::new(
             self.roots(),
-            self.state(),
             proven.element.clone(),
             tree,
             children,
@@ -139,7 +138,9 @@ impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
     }
 }
 
-impl<const MAX_DEPTH: usize, E: Clone + PartialEq, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>>
+    SkewMmr<MAX_DEPTH, E, H>
+{
     /// Proves the element is present in the MMR, returning a proof if so.
     ///
     /// Brute forces the MMR to find the element, so it is O(n) in the worst case.
@@ -159,17 +160,23 @@ impl<const MAX_DEPTH: usize, E: Clone + PartialEq, H: Hasher<E>> SkewMmr<MAX_DEP
     }
 }
 
-impl<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> Default for SkewMmr<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> Default
+    for SkewMmr<MAX_DEPTH, E, H>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<E: Clone> Node<E> {
-    /// Creates a new leaf node
-    fn leaf(element: E) -> Self {
+    /// Creates a new leaf node: `hash(element, default, default)`, so that a leaf is hashed
+    /// like every other node.
+    fn leaf<H: Hasher<E>>(element: E) -> Self
+    where
+        E: Default,
+    {
         Self {
-            root: element.clone(),
+            root: H::hash(&element, &E::default(), &E::default()),
             rank: 0,
             element,
             children: None,
@@ -245,7 +252,7 @@ pub mod testing {
     pub type Mmr = SkewMmr<MAX_DEPTH, u64, MockHasher>;
 
     /// An accumulator holding `0..n`, so the element at any index equals that index.
-    pub fn filled<const DEPTH: usize, E: Clone + From<u64>, H: Hasher<E>>(
+    pub fn filled<const DEPTH: usize, E: Clone + Default + From<u64>, H: Hasher<E>>(
         n: u64,
     ) -> SkewMmr<DEPTH, E, H> {
         let mut mmr = SkewMmr::new();

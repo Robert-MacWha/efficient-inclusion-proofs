@@ -2,13 +2,13 @@
 //! that the arkworks constraint matrices and assignment match the trace the
 //! Lean model renders into `crates/target/lean-traces` (`just lean`).
 
-use ark_ff::{Fp64, MontBackend, MontConfig};
+use ark_ff::{Field, Fp64, MontBackend, MontConfig};
 use ark_r1cs_std::{GR1CSVar, alloc::AllocVar, fields::fp::FpVar};
 use ark_r1cs_trace::{read_traces, render_trace};
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
 use skew_mmr::{
     SkewMmr,
-    constraints::{ProofVar, hasher::HasherGadget, state::StateVar},
+    constraints::{ProofVar, hasher::HasherGadget},
     hasher::Hasher,
     proof::Proof,
 };
@@ -24,12 +24,12 @@ type F = Fp64<MontBackend<FConfig, 1>>;
 
 const MAX_DEPTH: usize = 2;
 
-/// `Traces.hasher`: `element * left + right`.
+/// `Traces.hasher`: `element * (left + 1) + right`.
 struct TestHasher;
 
 impl Hasher<F> for TestHasher {
     fn hash(element: &F, left: &F, right: &F) -> F {
-        *element * left + right
+        *element * (*left + F::ONE) + right
     }
 }
 
@@ -39,7 +39,7 @@ impl HasherGadget<F> for TestHasher {
         left: &FpVar<F>,
         right: &FpVar<F>,
     ) -> Result<FpVar<F>, SynthesisError> {
-        Ok(element * left + right)
+        Ok(element * (left + F::ONE) + right)
     }
 }
 
@@ -47,13 +47,12 @@ impl HasherGadget<F> for TestHasher {
 fn check(proof: &Proof<MAX_DEPTH, F, TestHasher>) -> String {
     let cs = ConstraintSystem::<F>::new_ref();
     cs.set_optimization_goal(OptimizationGoal::Constraints);
-    let state = StateVar::new_witness(cs.clone(), || Ok(proof.state)).unwrap();
     let roots: [FpVar<F>; MAX_DEPTH] = std::array::from_fn(|i| {
         FpVar::new_witness(cs.clone(), || Ok(proof.roots[i].unwrap_or_default())).unwrap()
     });
     let element = FpVar::new_witness(cs.clone(), || Ok(proof.element)).unwrap();
     let proof_var = ProofVar::new_witness(cs.clone(), || Ok(proof)).unwrap();
-    let valid = proof_var.verify(&element, &state, &roots).unwrap();
+    let valid = proof_var.verify(&element, &roots).unwrap();
 
     assert!(cs.is_satisfied().unwrap());
     assert_eq!(valid.value().unwrap(), proof.verify());

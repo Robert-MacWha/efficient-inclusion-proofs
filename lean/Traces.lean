@@ -8,7 +8,7 @@ constraint matrices and assignment match, so any divergence between the model
 and the Rust fails `just lean`.
 
 The field is `ZMod 65537`, `MAX_DEPTH` is 2, and the hash is
-`element * left + right`.
+`element * (left + 1) + right`.
 -/
 import SkewMmr
 import Mathlib.Tactic.NormNum.Prime
@@ -21,31 +21,30 @@ instance : Fact (Nat.Prime 65537) := ⟨by norm_num⟩
 
 namespace Traces
 
-/-- `TestHasher`: `element * left + right`. -/
+/-- `TestHasher`: `element * (left + 1) + right`. -/
 def hasher : HasherGadget F where
-  hash_native e l r := e * l + r
+  hash_native e l r := e * (l + 1) + r
   hash e l r := do
-    let m ← e.mul l
+    let m ← e.mul (l + FpVar.Constant 1)
     pure (m + r)
   sound e l r k a h := by
     simp only [CS.run_bind, CS.run_pure, constraintsHold_append] at h ⊢
-    rw [FpVar.eval_hAdd, FpVar.mul_sound e l k a h.1]
+    rw [FpVar.eval_hAdd, FpVar.mul_sound e _ k a h.1, FpVar.eval_hAdd, FpVar.eval_Constant]
 
 /-- `check`: allocates the proof as the crate's tests do, then verifies it. -/
 def check (q : Proof F) : CS F (Boolean F) := do
-  let state ← StateVar.new_witness 2 q.state
   let roots ← q.roots.mapM FpVar.new_witness
   let element ← FpVar.new_witness q.element
   let proof ← ProofVar.new_witness q
-  proof.verify 2 hasher element state roots
+  proof.verify 2 hasher element roots
 
 /-- `Step::default()`. -/
 def pad : Step F := ⟨0, 0, false⟩
 
-/-- A proof against the accumulator holding `0..4`: trees of rank 1 and 0. -/
+/-- A proof against the accumulator holding `0..4`: trees of rank 1 and 0, with roots 4 and 3. -/
 def proof (element : F) (tree : Nat) (children : F × F) (path_len : Nat) (path : List (Step F)) :
     Proof F :=
-  ⟨[2, 3], ⟨1, 2, 4⟩, element, tree, children, path_len, path⟩
+  ⟨[4, 3], element, tree, children, path_len, path⟩
 
 /-- Element 0 of the accumulator holding `0..4`. The constraint matrices do not
 depend on the witness values, so one proof covers them. -/
