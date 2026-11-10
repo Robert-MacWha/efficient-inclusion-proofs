@@ -20,7 +20,6 @@ use crate::{
         array::try_from_fn,
         hasher::HasherGadget,
         mask::{one_hot, prefix_mask},
-        state::StateVar,
     },
     hasher::Hasher,
     proof::{Proof, Step},
@@ -50,46 +49,32 @@ pub struct StepVar<F: PrimeField> {
 }
 
 impl<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> ProofVar<MAX_DEPTH, F, H> {
-    /// Verifies the MMR inclusion proof of `element` against the frontier `state` and its
-    /// tree `roots`, reporting whether it holds.
+    /// Verifies the MMR inclusion proof of `element` against the tree `roots`, reporting
+    /// whether it holds.
     ///
-    /// `roots` and `state` must be bound to authenticated public inputs in the circuit.
+    /// `roots` must be bound to authenticated public inputs in the circuit.
     ///
     /// See [`crate::proof::Proof::verify`] for the native implementation.
     #[tracing::instrument(target = "r1cs", skip_all)]
     pub fn verify(
         &self,
         element: &FpVar<F>,
-        state: &StateVar<MAX_DEPTH, F>,
         roots: &[FpVar<F>; MAX_DEPTH],
     ) -> Result<Boolean<F>, SynthesisError> {
         let tree = one_hot::<MAX_DEPTH, F>(&self.tree)?;
-
-        // `live` reports that the tree is live, so the root selected below is never padding.
-        let (rank, live) = state.rank(&tree)?;
         let mut root = FpVar::zero();
         for (hit, candidate) in tree.iter().zip(roots) {
             root = hit.select(candidate, &root)?;
         }
 
-        let (active, path_bounded) = prefix_mask::<MAX_DEPTH, F>(&self.path_len)?;
-        let (within, rank_bounded) = prefix_mask::<MAX_DEPTH, F>(&rank)?;
-        let mut valid = live & path_bounded & rank_bounded;
-        for (active, within) in active.iter().zip(&within) {
-            // `path_len <= rank`, since every step the path takes must sit below `rank`.
-            valid &= within | !active;
-        }
-
-        // One step per level between the proven node and the tree root, so a node reached by
-        // `L` steps in a tree of rank `r` has rank `r - L`, and is a leaf exactly when `L == r`.
-        let is_leaf = self.path_len.is_eq(&rank)?;
-        let node = H::hash(element, &self.children[0], &self.children[1])?;
-        let mut current = is_leaf.select(element, &node)?;
+        // Every node, leaf or not, hashes its element with its children.
+        let (active, bounded) = prefix_mask::<MAX_DEPTH, F>(&self.path_len)?;
+        let mut current = H::hash(element, &self.children[0], &self.children[1])?;
         for (step, active) in self.path.iter().zip(&active) {
             current = active.select(&step.fold::<H>(&current)?, &current)?;
         }
 
-        Ok(valid & current.is_eq(&root)?)
+        Ok(bounded & current.is_eq(&root)?)
     }
 }
 
@@ -242,14 +227,13 @@ mod tests {
 
     fn check(proof: &SampleProof) -> bool {
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let state = StateVar::new_witness(cs.clone(), || Ok(proof.state)).unwrap();
         let roots = try_from_fn(|i| {
             FpVar::new_witness(cs.clone(), || Ok(proof.roots[i].unwrap_or_default()))
         })
         .unwrap();
         let element = FpVar::new_witness(cs.clone(), || Ok(proof.element)).unwrap();
         let proof = ProofVar::new_witness(cs.clone(), || Ok(proof)).unwrap();
-        let valid = proof.verify(&element, &state, &roots).unwrap();
+        let valid = proof.verify(&element, &roots).unwrap();
 
         assert!(cs.is_satisfied().unwrap());
         valid.value().unwrap()
