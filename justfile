@@ -1,5 +1,9 @@
 packages := "packages contracts circuits"
 
+install:
+    cd contracts && pnpm install
+    cd packages && pnpm install
+
 # Publish each package whose package.json version is not yet on npm (e.g. `just publish --dry-run`)
 publish *flags:
     #!/usr/bin/env bash
@@ -16,9 +20,9 @@ publish *flags:
     done
 
 # Compare skew-MMR with zk-kit's trees; see bench/README.md
-bench:
-    cd contracts && pnpm install && forge test --mc LeanImtComparison --isolate
-    cd packages && pnpm install && pnpm bench
+bench: install
+    cd contracts && forge test --mc LeanImtComparison --isolate
+    cd packages && pnpm bench
     python3 bench/constraints.py
     python3 bench/plot.py
 
