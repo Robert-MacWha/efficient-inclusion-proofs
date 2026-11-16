@@ -28,12 +28,12 @@ Comparison with zk-kit's leanIMT and IMT: [bench/](bench/README.md).
 
 Append columns measure the number of hashes required to append a single element. Proof columns measure the number of hashes required to verify an inclusion proof for a single element.
 
-| Structure  | Append mean | Append max | Proof mean  | Proof max |
-| ---------- | ----------- | ---------- | ----------- | --------- |
-| Skew-MMR   | 1           | 1          | log2(n) - 1 | log2(n)   |
-| Hash chain | 1.03        | 4          | 95          | 97        |
-
-Hash chain proofs are measured at 35,000 members, with `BATCH = 32` and `DEPTH = 5` as in [`HashChain.sol`](contracts/src/HashChain.sol).
+| Structure   | Append mean | Append max | Proof mean  | Proof max |
+| ----------- | ----------- | ---------- | ----------- | --------- |
+| Skew-MMR    | 1           | 1          | log2(n) - 1 | log2(n)   |
+| LeanIMT     | log2(n) / 2 | log2(n)    | log2(n)     | log2(n)   |
+| Merkle tree | depth       | depth      | depth       | depth     |
+| Hash chain  | 1.03        | 4          | 95          | 97        |
 
 ### Gas
 

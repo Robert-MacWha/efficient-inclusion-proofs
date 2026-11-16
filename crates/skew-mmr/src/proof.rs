@@ -54,10 +54,7 @@ impl<const MAX_DEPTH: usize, E, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
 impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>> Proof<MAX_DEPTH, E, H> {
     /// Verifies that `element` is held by the accumulator described by `roots`.
     ///
-    /// Every node, leaf or not, is `hash(element, left, right)`, with a leaf's children both
-    /// `E::default()`. So the proven node is always hashed, and no hash can pass as an
-    /// element. A missing root reads as `E::default()`, which a path only reaches through a
-    /// preimage of it. The caller must authenticate `roots` against the accumulator before
+    /// The caller must authenticate `roots` against the accumulator before
     /// trusting a `true`.
     pub fn verify(&self) -> bool {
         let root = self

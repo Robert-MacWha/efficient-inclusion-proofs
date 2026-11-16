@@ -169,8 +169,7 @@ impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> Default
 }
 
 impl<E: Clone> Node<E> {
-    /// Creates a new leaf node: `hash(element, default, default)`, so that a leaf is hashed
-    /// like every other node.
+    /// Creates a new leaf node
     fn leaf<H: Hasher<E>>(element: E) -> Self
     where
         E: Default,

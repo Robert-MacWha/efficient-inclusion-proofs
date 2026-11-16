@@ -20,11 +20,11 @@ flowchart TD
 
 ## Insertion
 
-Insertion assures that only the two rightmost nodes may have the same depth. Because merging involves three nodes, this means that each insertion requires exactly one hash. Every node, leaf or not, is `hash(element, left, right)`, with a leaf's children both zero.
+Insertion assures that only the two rightmost nodes may have the same depth. Because merging involves three nodes, this means that each insertion requires exactly one hash.
 
 ### Case 1: The two rightmost nodes are not the same depth
 
-The new node is hashed as `hash(new, 0, 0)` and appended to the list.
+The new node is `hash(new, 0, 0)` and appended to the list.
 
 When inserting `a5`:
 
