@@ -33,9 +33,12 @@ library LibSkewMmr {
     /// @param element The new elelment to append to the MMR.
     /// @param hash Merges a new element with the two roots it subsumes into a new tree root.
     ///
-    /// @dev Maximum of 1 hash per append. Follows skew-binary carry rules:
+    /// @dev Exactly 1 hash per append. Follows skew-binary carry rules:
     ///      1. If the two smallest trees have the same rank, merge them into a tree of rank+1.
-    ///      2. Otherwise, append the new element as a tree of rank 0.
+    ///      2. Otherwise, append the new element as a tree of rank 0, `hash(element, 0, 0)`.
+    ///
+    ///      Every node, leaf or not, is `hash(element, left, right)`, so no node can pass as an
+    ///      element in an inclusion proof.
     ///
     ///      Either branch writes `roots[tree]`, and `chains[tree - 1]` is stable across it.
     function append(
@@ -60,7 +63,7 @@ library LibSkewMmr {
         } else {
             if (d == MAX_TREES) revert TooDeep();
 
-            treeRoot = element;
+            treeRoot = hash(element, bytes32(0), bytes32(0));
             self.roots[d] = treeRoot;
 
             tree = d;
