@@ -3,7 +3,7 @@ pub mod constraints;
 pub mod hasher;
 pub mod proof;
 
-use std::{array::from_fn, marker::PhantomData};
+use std::{array::from_fn, collections::HashMap, hash::Hash, marker::PhantomData};
 
 use hasher::Hasher;
 use proof::{Proof, Step};
@@ -18,6 +18,8 @@ pub struct SkewMmr<const MAX_DEPTH: usize, E: Clone, H: Hasher<E>> {
     stack: [Option<Node<E>>; MAX_DEPTH],
     depth: usize,
     len: usize,
+    /// Insertion index of the first copy of each element, read by [`Self::prove_element`].
+    index: HashMap<E, usize>,
     hasher: PhantomData<H>,
 }
 
@@ -29,18 +31,22 @@ struct Node<E: Clone> {
     children: Option<Box<(Node<E>, Node<E>)>>,
 }
 
-impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> SkewMmr<MAX_DEPTH, E, H> {
+impl<const MAX_DEPTH: usize, E: Clone + Default + Eq + Hash, H: Hasher<E>>
+    SkewMmr<MAX_DEPTH, E, H>
+{
     pub fn new() -> Self {
         Self {
             stack: from_fn(|_| None),
             depth: 0,
             len: 0,
+            index: HashMap::new(),
             hasher: PhantomData,
         }
     }
 
     /// Appends an element to the MMR in O(1) hashes.
     pub fn append(&mut self, element: E) {
+        self.index.entry(element.clone()).or_insert(self.len);
         self.len += 1;
 
         if self.depth < 2 || self.rank(self.depth - 1) != self.rank(self.depth - 2) {
@@ -73,6 +79,12 @@ impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> SkewMmr<MAX_DEPTH
             path_len,
             path,
         )
+    }
+
+    /// Prove `element`, or return `None` if it was never appended. A repeated element proves its
+    /// first copy.
+    pub fn prove_element(&self, element: E) -> Option<Proof<MAX_DEPTH, E, H>> {
+        self.index.get(&element).map(|&index| self.prove(index))
     }
 
     /// Roots of the trees, closest to the top of the stack last. Entries above `depth` are `None`.
@@ -131,29 +143,7 @@ impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> SkewMmr<MAX_DEPTH
     }
 }
 
-impl<const MAX_DEPTH: usize, E: Clone + Default + PartialEq, H: Hasher<E>>
-    SkewMmr<MAX_DEPTH, E, H>
-{
-    /// Proves the element is present in the MMR, returning a proof if so.
-    ///
-    /// Brute forces the MMR to find the element, so it is O(n) in the worst case.
-    ///
-    /// TODO: O(n) bad.
-    pub fn prove_element(&self, element: E) -> Option<Proof<MAX_DEPTH, E, H>>
-    where
-        E: PartialEq,
-    {
-        (0..self.len)
-            .rev()
-            .find(|&position| {
-                let (tree, offset) = self.locate(position);
-                self.node(tree).element_at(offset) == &element
-            })
-            .map(|position| self.prove(self.len - 1 - position))
-    }
-}
-
-impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> Default
+impl<const MAX_DEPTH: usize, E: Clone + Default + Eq + Hash, H: Hasher<E>> Default
     for SkewMmr<MAX_DEPTH, E, H>
 {
     fn default() -> Self {
@@ -182,22 +172,6 @@ impl<E: Clone> Node<E> {
             rank: left.rank + 1,
             element,
             children: Some(Box::new((left, right))),
-        }
-    }
-
-    /// The element of the node at `offset`. Offset 0 is this node, then the left
-    /// subtree, then the right.
-    fn element_at(&self, offset: usize) -> &E {
-        if offset == 0 {
-            return &self.element;
-        }
-
-        let children = self.children.as_ref().expect("a leaf holds only offset 0");
-        let left_size = children.0.size();
-        if offset > left_size {
-            children.1.element_at(offset - 1 - left_size)
-        } else {
-            children.0.element_at(offset - 1)
         }
     }
 
@@ -236,6 +210,8 @@ impl<E: Clone> Node<E> {
 
 #[cfg(test)]
 pub mod testing {
+    use std::hash::Hash;
+
     use super::{Hasher, SkewMmr};
     use crate::hasher::MockHasher;
 
@@ -244,7 +220,7 @@ pub mod testing {
     pub type Mmr = SkewMmr<MAX_DEPTH, u64, MockHasher>;
 
     /// An accumulator holding `0..n`, so the element at any index equals that index.
-    pub fn filled<const DEPTH: usize, E: Clone + Default + From<u64>, H: Hasher<E>>(
+    pub fn filled<const DEPTH: usize, E: Clone + Default + Eq + Hash + From<u64>, H: Hasher<E>>(
         n: u64,
     ) -> SkewMmr<DEPTH, E, H> {
         let mut mmr = SkewMmr::new();
@@ -290,6 +266,26 @@ mod tests {
                 .sum();
             assert_eq!(covered, mmr.len());
         }
+    }
+
+    #[test]
+    fn proves_every_element_by_value() {
+        for n in 0..100 {
+            let mmr: Mmr = testing::filled(n);
+            for i in 0..n {
+                assert_eq!(mmr.prove_element(i), Some(mmr.prove(i as usize)));
+            }
+            assert_eq!(mmr.prove_element(n), None);
+        }
+    }
+
+    #[test]
+    fn proves_the_first_copy_of_a_repeated_element() {
+        let mut mmr: Mmr = testing::filled(10);
+        mmr.append(3);
+        mmr.append(3);
+
+        assert_eq!(mmr.prove_element(3), Some(mmr.prove(3)));
     }
 
     #[test]

@@ -33,11 +33,22 @@ describe("SkewMmr", () => {
     }
   });
 
-  test("proves an element by value", () => {
-    const accumulator = filled(100);
+  test("proves every element by value", () => {
+    for (let n = 0; n < 100; n++) {
+      const accumulator = filled(n);
+      for (let i = 0; i < n; i++) {
+        assert.deepEqual(accumulator.proveElement(BigInt(i)), accumulator.prove(i));
+      }
+      assert.equal(accumulator.proveElement(BigInt(n)), null);
+    }
+  });
 
-    assert.deepEqual(accumulator.proveElement(40n), accumulator.prove(40));
-    assert.equal(accumulator.proveElement(1000n), null);
+  test("proves the first copy of a repeated element", () => {
+    const accumulator = filled(10);
+    accumulator.append(3n);
+    accumulator.append(3n);
+
+    assert.deepEqual(accumulator.proveElement(3n), accumulator.prove(3));
   });
 
   test("rejects overflowing max depth", () => {

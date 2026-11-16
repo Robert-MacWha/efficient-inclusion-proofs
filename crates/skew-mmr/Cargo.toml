@@ -32,3 +32,8 @@ tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
 name = "hashes"
 path = "benches/hashes/main.rs"
 harness = false
+
+[[bench]]
+name = "prove_element"
+path = "benches/prove_element.rs"
+harness = false

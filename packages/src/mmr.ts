@@ -18,6 +18,8 @@ interface Node<E> {
 export class SkewMmr<E> {
   /** Perfect binary trees of decreasing ranks. */
   private readonly stack: Node<E>[] = [];
+  /** Insertion index of the first copy of each element, read by `proveElement`. */
+  private readonly index = new Map<E, number>();
   private readonly hasher: Hasher<E>;
   private readonly maxDepth: number;
   private count = 0;
@@ -29,6 +31,7 @@ export class SkewMmr<E> {
 
   /** Appends an element to the MMR in O(1) hashes. */
   append(element: E): void {
+    if (!this.index.has(element)) this.index.set(element, this.count);
     this.count += 1;
 
     const depth = this.stack.length;
@@ -57,20 +60,12 @@ export class SkewMmr<E> {
   }
 
   /**
-   * Proves the element is present in the MMR, returning a proof if so.
-   *
-   * Brute forces the MMR to find the element, so it is O(n) in the worst case.
-   *
-   * TODO: O(n) bad.
+   * Prove `element`, or return null if it was never appended. A repeated element proves its
+   * first copy.
    */
   proveElement(element: E): Proof<E> | null {
-    for (let position = this.count - 1; position >= 0; position--) {
-      const [tree, offset] = this.locate(position);
-      if (elementAt(this.stack[tree]!, offset) === element) {
-        return this.prove(this.count - 1 - position);
-      }
-    }
-    return null;
+    const index = this.index.get(element);
+    return index === undefined ? null : this.prove(index);
   }
 
   /** Roots of the trees, closest to the top of the stack last. */
@@ -138,22 +133,6 @@ function internal<E>(
     element,
     children: [left, right],
   };
-}
-
-/**
- * The element of the node at `offset`. Offset 0 is this node, then the left subtree,
- * then the right.
- */
-function elementAt<E>(node: Node<E>, offset: number): E {
-  if (offset === 0) return node.element;
-
-  const children = node.children;
-  if (children === null) throw new Error("a leaf holds only offset 0");
-
-  const leftSize = size(children[0]);
-  return offset > leftSize
-    ? elementAt(children[1], offset - 1 - leftSize)
-    : elementAt(children[0], offset - 1);
 }
 
 /**
