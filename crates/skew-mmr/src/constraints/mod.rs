@@ -1,7 +1,6 @@
 mod array;
 pub mod hasher;
 pub mod mask;
-pub mod state;
 
 use std::borrow::Borrow;
 use std::marker::PhantomData;
