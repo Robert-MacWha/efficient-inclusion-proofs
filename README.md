@@ -45,8 +45,8 @@ cd contracts && forge test --mc "SkewMmrWithHistoryGasTest|HashChainVerifierGasT
 
 | Call                            | Min    | Mean   | Max    |
 | ------------------------------- | ------ | ------ | ------ |
-| Skew-MMR `append`               | 15,939 | 18,118 | 59,138 |
-| Skew-MMR `verifyFrontier`       | 3,318  | 4,317  | 5,502  |
+| Skew-MMR `append`               | 13,120 | 14,405 | 55,720 |
+| Skew-MMR `verifyFrontier`       | 3,081  | 4,080  | 5,265  |
 | Hash chain `append`             | 10,805 | 11,090 | 24,254 |
 | Hash chain `verifyAccumulators` | 4,332  | 4,332  | 4,332  |
 

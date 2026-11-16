@@ -38,10 +38,10 @@ contract SkewMmrWithHistoryGasTest is Test {
         for (uint256 i = 0; i < 10000; ++i) {
             vm.cool(address(mmr));
             mmr.append(bytes32(i + 1));
-            (uint256 ranks, uint256 depth, uint256 count, bytes32[] memory roots) = mmr.frontier();
+            (uint256 count, bytes32[] memory roots) = mmr.frontier();
 
             vm.cool(address(mmr));
-            mmr.verifyFrontier(ranks, depth, count, roots);
+            mmr.verifyFrontier(count, roots);
         }
     }
 }

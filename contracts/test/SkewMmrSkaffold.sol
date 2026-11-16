@@ -31,12 +31,12 @@ contract SkewMmrSkaffold is SkewMmrWithHistory {
         return LibSkewMmr.root(mmr);
     }
 
-    function frontier() public view returns (uint256 ranks, uint256 depth_, uint256 count_, bytes32[] memory roots_) {
-        depth_ = mmr.depth;
+    function frontier() public view returns (uint256 count_, bytes32[] memory roots_) {
+        uint256 depth_ = mmr.depth;
         roots_ = new bytes32[](depth_);
         for (uint256 i = 0; i < depth_; ++i) {
             roots_[i] = mmr.roots[i];
         }
-        return (mmr.packedRanks, depth_, mmr.count, roots_);
+        return (mmr.count, roots_);
     }
 }

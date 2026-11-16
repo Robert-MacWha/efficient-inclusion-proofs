@@ -2,27 +2,28 @@
 pragma solidity ^0.8.13;
 
 library LibSkewMmr {
-    /// The number of ranks `packedRanks` holds, and the ceiling on `maxDepth` that follows from it.
-    uint256 internal constant MAX_TREES = 42;
+    /// The most trees a frontier can hold, which a `uint64` count never exceeds.
+    uint256 internal constant MAX_TREES = 64;
 
-    uint256 internal constant RANK_BITS = 6;
-    uint256 internal constant RANK_MASK = (1 << RANK_BITS) - 1;
-
-    /// @dev Initial value for the tree folding chain.
-    bytes32 internal constant IV = bytes32(0);
+    /// @dev Initial value for the tree folding chain. Non-zero, so that the chain of an empty
+    ///      frontier never equals an unwritten storage slot.
+    bytes32 internal constant IV = bytes32(uint256(1));
 
     struct State {
         /// @dev The frontier: tree roots, smallest-ranked last. Entries above `depth` are undefined.
         bytes32[MAX_TREES] roots;
 
-        /// @dev The `rank` of tree `i` sits at bits `6i..6i+6`. Ranks at or above `depth` are zero.
-        uint256 packedRanks;
-
-        uint8 depth;
-        uint64 count;
-
         /// @dev `chains[i]` folds `roots[0..i]`. Entries above `depth` are undefined.
         bytes32[MAX_TREES] chains;
+
+        uint64 count;
+        uint8 depth;
+
+        /// @dev Bit `k` is set when the frontier holds a tree of rank `k`.
+        uint64 ranks;
+
+        /// @dev Whether the two smallest trees have the same rank.
+        bool doubled;
     }
 
     error TooDeep();
@@ -46,51 +47,59 @@ library LibSkewMmr {
         bytes32 element,
         function(bytes32, bytes32, bytes32) internal view returns (bytes32) hash
     ) internal returns (bytes32 top) {
-        uint256 r = self.packedRanks;
         uint256 d = self.depth;
+        uint256 r = self.ranks;
         uint256 tree;
+        // The bit of `ranks` for the new tree.
         uint256 rank;
         bytes32 treeRoot;
 
-        if (d >= 2 && _rank(r, d - 1) == _rank(r, d - 2)) {
+        if (self.doubled) {
             treeRoot = hash(element, self.roots[d - 1], self.roots[d - 2]);
-            self.roots[d - 2] = treeRoot;
+
+            uint256 smallest = r & (~r + 1);
+            r ^= smallest;
 
             tree = d - 2;
-            rank = _rank(r, d - 1) + 1;
+            rank = smallest << 1;
             d -= 1;
-            r = _setRank(r, d, 0);
         } else {
             if (d == MAX_TREES) revert TooDeep();
 
             treeRoot = hash(element, bytes32(0), bytes32(0));
-            self.roots[d] = treeRoot;
 
             tree = d;
-            rank = 0;
+            rank = 1;
             d += 1;
         }
 
+        self.roots[tree] = treeRoot;
         top = _link(tree >= 1 ? self.chains[tree - 1] : IV, treeRoot);
         self.chains[tree] = top;
 
-        self.packedRanks = _setRank(r, tree, rank);
+        self.doubled = r & rank != 0;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        self.ranks = uint64(r | rank);
         // forge-lint: disable-next-line(unsafe-typecast)
         self.depth = uint8(d);
         self.count += 1;
     }
 
-    /// @notice The commitment to the frontier this MMR holds now, as `LibSkewMmrVerifier.append`
-    ///         returns and `LibSkewMmrVerifier.frontierCommitment` recomputes.
+    /// @notice The commitment to the frontier this MMR holds now, as `append` returns and
+    ///         `fold` recomputes.
     /// @dev The last tree's chain folds every root.
     function root(State storage self) internal view returns (bytes32) {
         uint256 depth = self.depth;
-        bytes32 top = depth == 0 ? IV : self.chains[depth - 1];
-        return _commit(top, self.packedRanks, depth, self.count);
+        return depth == 0 ? IV : self.chains[depth - 1];
     }
 
-    function ranks(State storage self, uint256 tree) internal view returns (uint8) {
-        return uint8(_rank(self.packedRanks, tree));
+    /// @notice The commitment to `frontier`, which equals `root` when `frontier` holds the
+    ///         MMR's roots in order.
+    function fold(bytes32[] calldata frontier) internal pure returns (bytes32 chain) {
+        chain = IV;
+        for (uint256 i = 0; i < frontier.length; ++i) {
+            chain = _link(chain, frontier[i]);
+        }
     }
 
     function _link(bytes32 prev, bytes32 treeRoot) internal pure returns (bytes32 chain) {
@@ -98,30 +107,6 @@ library LibSkewMmr {
             mstore(0x00, prev)
             mstore(0x20, treeRoot)
             chain := keccak256(0x00, 0x40)
-        }
-    }
-
-    function _rank(uint256 r, uint256 tree) internal pure returns (uint256) {
-        return (r >> (RANK_BITS * tree)) & RANK_MASK;
-    }
-
-    function _setRank(uint256 r, uint256 tree, uint256 rank) internal pure returns (uint256) {
-        uint256 offset = RANK_BITS * tree;
-        return (r & ~(RANK_MASK << offset)) | (rank << offset);
-    }
-
-    function _commit(bytes32 top, uint256 packedRanks, uint256 depth, uint256 count)
-        internal
-        pure
-        returns (bytes32 commitment)
-    {
-        assembly ("memory-safe") {
-            let ptr := mload(0x40)
-            mstore(ptr, top)
-            mstore(add(ptr, 0x20), packedRanks)
-            mstore(add(ptr, 0x40), depth)
-            mstore(add(ptr, 0x60), count)
-            commitment := keccak256(ptr, 0x80)
         }
     }
 }

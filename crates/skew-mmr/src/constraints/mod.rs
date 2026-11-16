@@ -27,7 +27,7 @@ use crate::{
 /// An inclusion proof for an element in a [`crate::SkewMmr`], padded to `MAX_DEPTH`.
 #[derive(Debug, Clone)]
 pub struct ProofVar<const MAX_DEPTH: usize, F: PrimeField, H: HasherGadget<F>> {
-    /// Index into `roots` and the rank bytes of `state`.
+    /// Index into `roots`.
     pub tree: FpVar<F>,
     /// The children of the proven node. Ignored when it is a leaf.
     pub children: [FpVar<F>; 2],

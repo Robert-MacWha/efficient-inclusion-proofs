@@ -9,7 +9,7 @@ pub struct Proof<const MAX_DEPTH: usize, E, H: Hasher<E>> {
     pub roots: [Option<E>; MAX_DEPTH],
     /// The proven element.
     pub element: E,
-    /// Index into `roots` and the rank bytes of `state`.
+    /// Index into `roots`.
     pub tree: usize,
     /// The children of the proven node. Ignored when it is a leaf.
     pub children: Option<(E, E)>,

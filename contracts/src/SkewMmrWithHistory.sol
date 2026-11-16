@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {LibSkewMmr} from "./lib/LibSkewMmr.sol";
-import {LibSkewMmrVerifier} from "./lib/LibSkewMmrVerifier.sol";
 
 /// @title Skew-MMR frontier verifier
 /// @notice Commits to the frontier on every append so a caller can pass it in calldata
@@ -28,10 +27,10 @@ contract SkewMmrWithHistory {
     }
 
     function _append(bytes32 element) internal {
-        bytes32 commitment = LibSkewMmrVerifier.append(mmr, element, _hash);
+        bytes32 top = mmr.append(element, _hash);
         if (mmr.depth > MAX_DEPTH) revert LibSkewMmr.TooDeep();
 
-        history[mmr.count % HISTORY_SIZE] = commitment;
+        history[mmr.count % HISTORY_SIZE] = top;
     }
 
     /// Appends without committing the new frontier to `history`.
@@ -48,25 +47,18 @@ contract SkewMmrWithHistory {
     }
 
     /// @notice Returns true if `frontier` is the frontier this MMR held at `histCount`.
-    function verifyFrontier(uint256 histRanks, uint256 histDepth, uint256 histCount, bytes32[] calldata frontier)
-        public
-        view
-        returns (bool)
-    {
-        bytes32 commitment = LibSkewMmrVerifier.frontierCommitment(histRanks, histDepth, histCount, frontier);
-
-        if (history[histCount % HISTORY_SIZE] != commitment) {
-            return false;
-        }
-        return true;
+    function verifyFrontier(uint256 histCount, bytes32[] calldata frontier) public view returns (bool) {
+        return history[histCount % HISTORY_SIZE] == LibSkewMmr.fold(frontier);
     }
 
-    function packedRanks() external view returns (uint256) {
-        return mmr.packedRanks;
+    /// @notice Bit `k` is set when the frontier holds a tree of rank `k`.
+    function ranks() external view returns (uint64) {
+        return mmr.ranks;
     }
 
-    function ranks(uint256 tree) external view returns (uint8) {
-        return mmr.ranks(tree);
+    /// @notice Whether the two smallest trees have the same rank.
+    function doubled() external view returns (bool) {
+        return mmr.doubled;
     }
 
     function roots(uint256 tree) external view returns (bytes32) {

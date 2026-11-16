@@ -46,6 +46,17 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         let n = i + 1;
         let depth: usize = contract.depth().call().await?.to();
         assert_eq!(depth, mmr.depth(), "depth after {n} appends");
+        let ranks: Vec<u32> = mmr.ranks().into_iter().flatten().collect();
+        assert_eq!(
+            ranks.iter().fold(0u64, |bits, rank| bits | 1 << rank),
+            contract.ranks().call().await?,
+            "ranks after {n} appends"
+        );
+        assert_eq!(
+            ranks.len() >= 2 && ranks[ranks.len() - 1] == ranks[ranks.len() - 2],
+            contract.doubled().call().await?,
+            "doubled after {n} appends"
+        );
         assert_eq!(
             contract.count().call().await?.to::<usize>(),
             mmr.len(),
@@ -53,27 +64,15 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         );
 
         let roots = mmr.roots();
-        let ranks = mmr.ranks();
-        for tree in 0..depth {
+        for (tree, expected) in roots.iter().enumerate().take(depth) {
             let root = contract.roots(U256::from(tree)).call().await?;
-            let rank = contract.ranks(U256::from(tree)).call().await?;
-            assert_eq!(Some(root.0), roots[tree], "root {tree} after {n} appends");
-            assert_eq!(
-                Some(u32::from(rank)),
-                ranks[tree],
-                "rank {tree} after {n} appends"
-            );
+            assert_eq!(Some(root.0), *expected, "root {tree} after {n} appends");
         }
 
         let frontier: Vec<FixedBytes<32>> =
             roots.iter().flatten().map(|root| (*root).into()).collect();
         let ok = contract
-            .verifyFrontier(
-                contract.packedRanks().call().await?,
-                U256::from(depth),
-                U256::from(mmr.len()),
-                frontier,
-            )
+            .verifyFrontier(U256::from(mmr.len()), frontier)
             .call()
             .await
             .map_err(|e| format!("frontier rejected after {n} appends: {e}"))?;

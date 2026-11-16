@@ -4,7 +4,6 @@ pragma solidity ^0.8.33;
 import {Test} from "forge-std/Test.sol";
 import {SkewMmrSkaffold} from "./SkewMmrSkaffold.sol";
 import {LibSkewMmr} from "../src/lib/LibSkewMmr.sol";
-import {LibSkewMmrVerifier} from "../src/lib/LibSkewMmrVerifier.sol";
 
 contract SkewMmrVerifierTest is Test {
     uint256 private constant MAX_DEPTH = LibSkewMmr.MAX_TREES;
@@ -22,12 +21,12 @@ contract SkewMmrVerifierTest is Test {
     function test_verifiesCommittedFrontier() public {
         for (uint256 i = 0; i < 200; ++i) {
             mmr.append(bytes32(i + 1));
-            assert(mmr.verifyFrontier(mmr.packedRanks(), mmr.depth(), mmr.count(), _frontier()));
+            assert(mmr.verifyFrontier(mmr.count(), _frontier()));
         }
     }
 
     function test_rootMatchesEachAppendsCommitment() public {
-        assertEq(mmr.root(), keccak256(abi.encode(LibSkewMmr.IV, 0, 0, 0)));
+        assertEq(mmr.root(), LibSkewMmr.IV);
         for (uint256 i = 0; i < 200; ++i) {
             mmr.append(bytes32(i + 1));
             assertEq(mmr.root(), mmr.history(mmr.count() % HISTORY_SIZE));
@@ -43,17 +42,20 @@ contract SkewMmrVerifierTest is Test {
             truncated[i] = frontier[i];
         }
 
-        uint256 anchorRanks = mmr.packedRanks();
-        uint256 anchorDepth = mmr.depth();
-        uint256 anchorCount = mmr.count();
+        assert(!mmr.verifyFrontier(mmr.count(), truncated));
+    }
 
-        vm.expectRevert(LibSkewMmrVerifier.BadFrontier.selector);
-        mmr.verifyFrontier(anchorRanks, anchorDepth, anchorCount, truncated);
+    function test_rejectsEmptyFrontier() public {
+        bytes32[] memory empty = new bytes32[](0);
+        assert(!mmr.verifyFrontier(0, empty));
+
+        _fill(40);
+        assert(!mmr.verifyFrontier(mmr.count(), empty));
+        assert(!mmr.verifyFrontier(mmr.count() + 1, empty));
     }
 
     function test_rejectsForgedRoot() public {
         _fill(40);
-        uint256 anchorRanks = mmr.packedRanks();
         uint256 d = mmr.depth();
         uint256 anchorCount = mmr.count();
 
@@ -61,48 +63,28 @@ contract SkewMmrVerifierTest is Test {
             bytes32[] memory frontier = _frontier();
             frontier[j] = bytes32(uint256(frontier[j]) ^ 1);
 
-            assert(!mmr.verifyFrontier(anchorRanks, d, anchorCount, frontier));
+            assert(!mmr.verifyFrontier(anchorCount, frontier));
         }
-    }
-
-    function test_rejectsForgedRanks() public {
-        _fill(40);
-        uint256 forgedRanks = mmr.packedRanks() ^ 1;
-        bytes32[] memory frontier = _frontier();
-
-        assert(!mmr.verifyFrontier(forgedRanks, mmr.depth(), mmr.count(), frontier));
-    }
-
-    function test_rejectsForgedCount() public {
-        _fill(40);
-        uint256 forgedCount = mmr.count() + mmr.HISTORY_SIZE();
-        bytes32[] memory frontier = _frontier();
-
-        assert(!mmr.verifyFrontier(mmr.packedRanks(), mmr.depth(), forgedCount, frontier));
     }
 
     function test_acceptsHistoricFrontierInsideTheWindow() public {
         _fill(40);
-        uint256 anchorRanks = mmr.packedRanks();
-        uint256 anchorDepth = mmr.depth();
         uint256 anchorCount = mmr.count();
         bytes32[] memory anchor = _frontier();
 
         _fill(mmr.HISTORY_SIZE() - 1);
 
-        assert(mmr.verifyFrontier(anchorRanks, anchorDepth, anchorCount, anchor));
+        assert(mmr.verifyFrontier(anchorCount, anchor));
     }
 
     function test_rejectsHistoricFrontierPastTheWindow() public {
         _fill(40);
-        uint256 anchorRanks = mmr.packedRanks();
-        uint256 anchorDepth = mmr.depth();
         uint256 anchorCount = mmr.count();
         bytes32[] memory anchor = _frontier();
 
         _fill(mmr.HISTORY_SIZE());
 
-        assert(!mmr.verifyFrontier(anchorRanks, anchorDepth, anchorCount, anchor));
+        assert(!mmr.verifyFrontier(anchorCount, anchor));
     }
 
     function test_batchCommitsTheSameFrontierAsSingleAppends() public {
@@ -115,15 +97,13 @@ contract SkewMmrVerifierTest is Test {
             }
 
             assertEq(mmr.history(mmr.count() % HISTORY_SIZE), single.history(single.count() % HISTORY_SIZE));
-            assert(mmr.verifyFrontier(mmr.packedRanks(), mmr.depth(), mmr.count(), _frontier()));
+            assert(mmr.verifyFrontier(mmr.count(), _frontier()));
         }
     }
 
     function test_batchSkipsIntermediateFrontiers() public {
         _fill(40);
         mmr.append(bytes32(uint256(41)));
-        uint256 midRanks = mmr.packedRanks();
-        uint256 midDepth = mmr.depth();
         uint256 midCount = mmr.count();
         bytes32[] memory mid = _frontier();
 
@@ -132,7 +112,7 @@ contract SkewMmrVerifierTest is Test {
         _fill(40);
         mmr.appendBatch(_batch(40, 2));
 
-        assert(!mmr.verifyFrontier(midRanks, midDepth, midCount, mid));
+        assert(!mmr.verifyFrontier(midCount, mid));
     }
 
     function test_rejectsAppendsPastMaxDepth() public {
@@ -146,7 +126,7 @@ contract SkewMmrVerifierTest is Test {
         shallow.append(bytes32(SHALLOW_CAPACITY + 1));
     }
 
-    function test_rejectsAMaxDepthAboveTheRankWord() public {
+    function test_rejectsAMaxDepthAboveMaxTrees() public {
         vm.expectRevert(LibSkewMmr.TooDeep.selector);
         new SkewMmrSkaffold(MAX_DEPTH + 1, HISTORY_SIZE);
     }

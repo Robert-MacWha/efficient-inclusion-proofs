@@ -10,7 +10,6 @@
   },
   "files": [
     "src/lib/LibSkewMmr.sol",
-    "src/lib/LibSkewMmrVerifier.sol",
     "src/SkewMmrVerifier.sol"
   ],
   "publishConfig": {

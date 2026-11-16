@@ -4,7 +4,7 @@ Skew-MMR benchmarks for compute, gas, and constraint compared with zk-kit's [lea
 
 | At 1,024 members           | skew-MMR | leanIMT |
 | -------------------------- | -------- | ------- |
-| Mean insert gas            | 90,926   | 185,610 |
+| Mean insert gas            | 85,750   | 185,610 |
 | Proof constraints          | 2,867    | 2,463   |
 | JS insert (ms)             | 0.120    | 0.829   |
 | JS verify (ms)             | 1.42     | 1.51    |
@@ -17,10 +17,10 @@ Gas for each insert into an empty tree, as a full transaction (`forge test --iso
 
 | Mean over first | skew-MMR | leanIMT |
 | --------------- | -------- | ------- |
-| 128 members     | 99,999   | 147,418 |
-| 256 members     | 94,880   | 159,889 |
-| 512 members     | 92,265   | 172,666 |
-| 1,024 members   | 90,926   | 185,610 |
+| 128 members     | 94,759   | 147,418 |
+| 256 members     | 89,677   | 159,889 |
+| 512 members     | 87,080   | 172,666 |
+| 1,024 members   | 85,750   | 185,610 |
 
 Skew-MMR hashes once per insert, so its cost stays flat. LeanIMT updates every level, so its cost grows with the number of members.
 
