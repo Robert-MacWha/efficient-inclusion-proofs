@@ -2,13 +2,11 @@
 pub mod constraints;
 pub mod hasher;
 pub mod proof;
-pub mod state;
 
 use std::{array::from_fn, marker::PhantomData};
 
 use hasher::Hasher;
 use proof::{Proof, Step};
-use state::State;
 
 /// An append-only set commitment structure.
 ///
@@ -85,11 +83,6 @@ impl<const MAX_DEPTH: usize, E: Clone + Default, H: Hasher<E>> SkewMmr<MAX_DEPTH
     /// Ranks of the trees, paired with [`Self::roots`].
     pub fn ranks(&self) -> [Option<u32>; MAX_DEPTH] {
         from_fn(|i| (i < self.depth).then(|| self.node(i).rank))
-    }
-
-    /// The frontier, packed by [`State`].
-    pub fn state(&self) -> State<MAX_DEPTH> {
-        State::new(&self.ranks(), self.len as u64)
     }
 
     pub fn len(&self) -> usize {

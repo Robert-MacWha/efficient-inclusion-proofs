@@ -47,11 +47,6 @@ async fn rust_and_solidity_agree_after_every_append() -> Result<(), Box<dyn Erro
         let depth: usize = contract.depth().call().await?.to();
         assert_eq!(depth, mmr.depth(), "depth after {n} appends");
         assert_eq!(
-            U256::from_le_slice(mmr.state().packed_ranks()),
-            contract.packedRanks().call().await?,
-            "packed ranks after {n} appends"
-        );
-        assert_eq!(
             contract.count().call().await?.to::<usize>(),
             mmr.len(),
             "count after {n} appends"
