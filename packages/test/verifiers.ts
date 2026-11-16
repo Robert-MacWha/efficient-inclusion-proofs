@@ -6,7 +6,6 @@ import { wasm } from "circom_tester";
 import type { WasmTester } from "circom_tester";
 
 import { poseidonHasher } from "../src/hasher.ts";
-import type { SkewMmr } from "../src/mmr.ts";
 import { verify } from "../src/proof.ts";
 import type { Proof } from "../src/proof.ts";
 import { input } from "./helpers.ts";
@@ -20,26 +19,13 @@ export interface Verifier {
   name: string;
   /** Longest MMR the shared suite proves every element of. */
   sweep: number;
-  verify(
-    accumulator: SkewMmr<bigint>,
-    proof: Proof<bigint>,
-    element: bigint,
-  ): Promise<boolean>;
+  verify(proof: Proof<bigint>): Promise<boolean>;
 }
 
 export const reference: Verifier = {
   name: "verify",
   sweep: 100,
-  verify(accumulator, proof, element) {
-    const accepted = verify(
-      poseidonHasher,
-      proof,
-      accumulator.roots(),
-      accumulator.ranks(),
-      element,
-    );
-    return Promise.resolve(accepted);
-  },
+  verify: (proof) => Promise.resolve(verify(poseidonHasher, proof)),
 };
 
 export async function compiled(): Promise<Verifier> {
@@ -48,8 +34,7 @@ export async function compiled(): Promise<Verifier> {
   return {
     name: "SkewMmrInclusion",
     sweep: 20,
-    verify: (accumulator, proof, element) =>
-      satisfies(circuit, input(accumulator, proof, element)),
+    verify: (proof) => satisfies(circuit, input(proof)),
   };
 }
 

@@ -74,8 +74,7 @@ function skewMmr(): Subject {
     prove: () => mmr.prove(mmr.len() >> 1),
     verifier: () => {
       const proof = mmr.prove(mmr.len() >> 1);
-      const [roots, ranks] = [mmr.roots(), mmr.ranks()];
-      return () => verify(poseidonHasher, proof, roots, ranks, 1n);
+      return () => verify(poseidonHasher, proof);
     },
   };
 }

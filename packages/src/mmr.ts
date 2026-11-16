@@ -33,7 +33,7 @@ export class SkewMmr<E> {
 
     const depth = this.stack.length;
     if (depth < 2 || this.stack[depth - 1]!.rank !== this.stack[depth - 2]!.rank) {
-      this.push(leaf(element));
+      this.push(leaf(this.hasher, element));
       return;
     }
 
@@ -48,16 +48,37 @@ export class SkewMmr<E> {
 
     const [tree, offset] = this.locate(this.count - 1 - index);
     const path: Step<E>[] = [];
-    const children = walk(this.stack[tree]!, offset, path);
+    const proven = walk(this.stack[tree]!, offset, path);
     path.reverse();
+    const children: [E, E] | null =
+      proven.children && [proven.children[0].root, proven.children[1].root];
 
-    return { tree, children, path };
+    return { roots: this.roots(), element: proven.element, tree, children, path };
   }
 
+  /**
+   * Proves the element is present in the MMR, returning a proof if so.
+   *
+   * Brute forces the MMR to find the element, so it is O(n) in the worst case.
+   *
+   * TODO: O(n) bad.
+   */
+  proveElement(element: E): Proof<E> | null {
+    for (let position = this.count - 1; position >= 0; position--) {
+      const [tree, offset] = this.locate(position);
+      if (elementAt(this.stack[tree]!, offset) === element) {
+        return this.prove(this.count - 1 - position);
+      }
+    }
+    return null;
+  }
+
+  /** Roots of the trees, closest to the top of the stack last. */
   roots(): E[] {
     return this.stack.map((node) => node.root);
   }
 
+  /** Ranks of the trees, paired with `roots`. */
   ranks(): number[] {
     return this.stack.map((node) => node.rank);
   }
@@ -96,8 +117,13 @@ export class SkewMmr<E> {
   }
 }
 
-function leaf<E>(element: E): Node<E> {
-  return { root: element, rank: 0, element, children: null };
+function leaf<E>(hasher: Hasher<E>, element: E): Node<E> {
+  return {
+    root: hasher.hash(element, hasher.zero, hasher.zero),
+    rank: 0,
+    element,
+    children: null,
+  };
 }
 
 function internal<E>(
@@ -115,13 +141,27 @@ function internal<E>(
 }
 
 /**
- * Push the ancestors of the node at `offset`, root first, and return that node's
- * children. Offset 0 is this node, then the left subtree, then the right.
+ * The element of the node at `offset`. Offset 0 is this node, then the left subtree,
+ * then the right.
  */
-function walk<E>(node: Node<E>, offset: number, path: Step<E>[]): [E, E] | null {
-  if (offset === 0) {
-    return node.children && [node.children[0].root, node.children[1].root];
-  }
+function elementAt<E>(node: Node<E>, offset: number): E {
+  if (offset === 0) return node.element;
+
+  const children = node.children;
+  if (children === null) throw new Error("a leaf holds only offset 0");
+
+  const leftSize = size(children[0]);
+  return offset > leftSize
+    ? elementAt(children[1], offset - 1 - leftSize)
+    : elementAt(children[0], offset - 1);
+}
+
+/**
+ * Push the ancestors of the node at `offset`, root first, and return that node.
+ * Offset 0 is this node, then the left subtree, then the right.
+ */
+function walk<E>(node: Node<E>, offset: number, path: Step<E>[]): Node<E> {
+  if (offset === 0) return node;
 
   const children = node.children;
   if (children === null) throw new Error("a leaf holds only offset 0");

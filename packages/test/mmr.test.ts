@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import { poseidonHasher } from "../src/hasher.ts";
 import { SkewMmr } from "../src/mmr.ts";
-import { mmr } from "./helpers.ts";
+import { filled, mmr } from "./helpers.ts";
 
 describe("SkewMmr", () => {
   test("ranks decrease except the top pair", () => {
@@ -31,6 +31,13 @@ describe("SkewMmr", () => {
         .reduce((sum, rank) => sum + 2 ** (rank + 1) - 1, 0);
       assert.equal(covered, accumulator.len());
     }
+  });
+
+  test("proves an element by value", () => {
+    const accumulator = filled(100);
+
+    assert.deepEqual(accumulator.proveElement(40n), accumulator.prove(40));
+    assert.equal(accumulator.proveElement(1000n), null);
   });
 
   test("rejects overflowing max depth", () => {
