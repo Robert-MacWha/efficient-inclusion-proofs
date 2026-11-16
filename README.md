@@ -13,65 +13,41 @@ This repo contains set commitment structures that allow a caller to cheaply prov
   - [lean](lean): Lean proof that the skew-mmr circuit decides what the native verifier decides.
 - [hash-chain](crates/hash-chain): A hash chain that keeps a running chain per level, each batch of `BATCH` elements closing and folding into the level above.  Average append cost is 1 hash, with rare cases of 2, 3, or 4 hashes.
 
-> skew-mmr is *probably* the better choice for privacy protocols. It has a higher average gas cost (~62k vs ~40k using poseidon2), but:
->   1. has a lower maximum gas cost (~75k vs ~105k using poseidon2)
+> skew-mmr is *probably* the better choice for privacy protocols. It has a higher average append gas cost, but:
+>   1. takes exactly one hash per append, where the hash chain can take up to 4,
 >   2. requires significantly fewer in-circuit hashes to verify an inclusion proof, and
->   3. has a more predictable gas cost for appending elements. 
-> 
-> Because of the hash-chain's batch structure, appending an element can rarely require 2-4x the expected gas cost, which makes it difficult to estimate ahead of time.
+>   3. has a more predictable gas cost for appending elements.
+>
+> Because of the hash-chain's batch structure, appending an element can rarely require several times the expected number of hashes, which makes its gas cost difficult to estimate ahead of time.
 
 ## Benchmarks
 
 Comparison with zk-kit's leanIMT and IMT: [bench/](bench/README.md).
 
-Measured by `contracts/test/*.gas.t.sol`.
-
 ### Hashes
 
-Append columns measure the number of hashes required to append a single element. Proof column measures the number of hashes required to verify an inclusion proof for a single element.
+Append columns measure the number of hashes required to append a single element. Proof columns measure the number of hashes required to verify an inclusion proof for a single element.
 
-| Structure  | Append mean | Append max | Proof mean    | Proof max   |
-| ---------- | ----------- | ---------- | ------------- | ----------- |
-| Skew-MMR   | 1           | 1          | log2(n) - 1   | log2(n)     |
-| Hash chain | 1.03        | 5          | 144           | 160         |
+| Structure  | Append mean | Append max | Proof mean  | Proof max |
+| ---------- | ----------- | ---------- | ----------- | --------- |
+| Skew-MMR   | 1           | 1          | log2(n) - 1 | log2(n)   |
+| Hash chain | 1.03        | 4          | 95          | 97        |
 
-### Append gas
+Hash chain proofs are measured at 35,000 members, with `BATCH = 32` and `DEPTH = 5` as in [`HashChain.sol`](contracts/src/HashChain.sol).
 
-Benchmarks use keccak256 as the hash function. For privacy protocols, an algebraic hash like Poseidon2 will be required. The number of algebraic hashes required for each row is shown in the "Proof hashes" column, and can be used to estimate gas cost with a different hash fn.
+### Gas
 
-| Skew-MMR branch           | Share       | Gas    | Proof hashes |
-| ------------------------- | ----------- | ------ | ------------ |
-| Push, `roots` slot reused | 2037 / 4096 | 26,895 | 0            |
-| Merge                     | 2047 / 4096 | 27,942 | 1, 3-ary     |
-| Push, new maximum depth   | 12 / 4096   | 26,405 | 0            |
-| Mean                      |             | 27,417 | 0.5          |
+Execution gas of each call with keccak256, measured by `contracts/test/*.gas.t.sol`:
 
-| Hash chain branch | Share         | Mean   | Range           | Proof hashes |
-| ----------------- | ------------- | ------ | --------------- | ------------ |
-| 1 level           | 33907 / 35000 | 19,804 | 19,762 - 22,262 | 1            |
-| 2 levels          | 1059 / 35000  | 29,807 | 27,611 - 31,943 | 2            |
-| 3 levels          | 33 / 35000    | 30,543 | 30,372 - 32,560 | 3            |
-| 4 levels          | 1 / 35000     | 33,133 |                 | 4            |
-| Mean              |               | 20,117 |                 | 1.03         |
+```bash
+cd contracts && forge test --mc "SkewMmrWithHistoryGasTest|HashChainVerifierGasTest" --gas-report
+```
 
+| Call                            | Min    | Mean   | Max    |
+| ------------------------------- | ------ | ------ | ------ |
+| Skew-MMR `append`               | 15,939 | 18,118 | 59,138 |
+| Skew-MMR `verifyFrontier`       | 3,318  | 4,317  | 5,502  |
+| Hash chain `append`             | 10,805 | 11,090 | 24,254 |
+| Hash chain `verifyAccumulators` | 4,332  | 4,332  | 4,332  |
 
-### Verify gas
-
-Gas cost of verifying a calldata-provided state against a historical value stored in contract
-storage.
-
-| Structure            | Calldata words | Execution | Calldata | Total  |
-| -------------------- | -------------- | --------- | -------- | ------ |
-| Skew-MMR<sup>*</sup> | 26             | 10,266    | 13,312   | 23,578 |
-| Hash chain           | 5              | 5,493     | 2,560    | 8,053  |
-
-<sup>*</sup> Skew-MMR's verify cost varies with the length of the MMR. Each additional level adds 1 word to calldata (~512 gas) for an average gas cost of 6,144 and a maximum of 13,312.
-
-### Projected with Poseidon2
-
-Taking 14,000 gas for a 2-ary Poseidon2 and 25,000 for 3-ary [TaceoLabs/poseidon2-solidity](https://github.com/TaceoLabs/poseidon2-solidity#gas-and-bytecode-trade-offs):
-
-| Structure  | Append mean | Verify mean | Append + verify |
-| ---------- | ----------- | ----------- | --------------- |
-| Skew-MMR   | 39,887      | 23,578      | 63,465          |
-| Hash chain | 34,592      | 8,053       | 40,645          |
+For privacy protocols, an algebraic hash like Poseidon will be required. Add its cost for each hash in the table above. See [bench/](bench/README.md) for full-transaction gas with Poseidon.

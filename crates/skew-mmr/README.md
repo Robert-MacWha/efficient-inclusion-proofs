@@ -1,6 +1,6 @@
 # skew-mmr
 
-The skew-MMR is a list of perfect Merkle trees, similar to a Merkle mountain range, with modified insertion rules that ensure each insertion requires at most one hash.
+The skew-MMR is a list of perfect Merkle trees, similar to a Merkle mountain range, with modified insertion rules that ensure each insertion requires exactly one hash.
 
 Example of a skew-MMR:
 
@@ -20,11 +20,11 @@ flowchart TD
 
 ## Insertion
 
-Insertion assures that only the two rightmost nodes may have the same depth. Because merging involves three nodes, this means that each insertion will only ever require zero or one hash.
+Insertion assures that only the two rightmost nodes may have the same depth. Because merging involves three nodes, this means that each insertion requires exactly one hash. Every node, leaf or not, is `hash(element, left, right)`, with a leaf's children both zero.
 
 ### Case 1: The two rightmost nodes are not the same depth
 
-The new node is appended to the list without any hashes.
+The new node is hashed as `hash(new, 0, 0)` and appended to the list.
 
 When inserting `a5`:
 
