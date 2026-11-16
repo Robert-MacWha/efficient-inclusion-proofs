@@ -16,6 +16,7 @@
     "access": "public"
   },
   "devDependencies": {
+    "forge-std": "github:foundry-rs/forge-std#v1.17.0",
     "lean-imt": "npm:@zk-kit/lean-imt.sol@2.0.1",
     "poseidon-solidity": "0.0.5"
   }

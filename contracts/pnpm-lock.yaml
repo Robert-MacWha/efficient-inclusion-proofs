@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      forge-std:
+        specifier: github:foundry-rs/forge-std#v1.17.0
+        version: https://codeload.github.com/foundry-rs/forge-std/tar.gz/f3dae6e6ee381f25eb6a246f7da9b85c91a68219
       lean-imt:
         specifier: npm:@zk-kit/lean-imt.sol@2.0.1
         version: '@zk-kit/lean-imt.sol@2.0.1'
@@ -20,6 +23,10 @@ packages:
   '@zk-kit/lean-imt.sol@2.0.1':
     resolution: {integrity: sha512-2dy/wfzch2vy5QtDCFmQwN7E4GZP0xBcucTb2mfZoJP5V69cjPRdy6KcbS0YOcBMH/Lb7BgXLsekRYjh9JNKEw==}
 
+  forge-std@https://codeload.github.com/foundry-rs/forge-std/tar.gz/f3dae6e6ee381f25eb6a246f7da9b85c91a68219:
+    resolution: {gitHosted: true, integrity: sha512-kWTY+yO15MFwX8d4b4KhXEv7rJzNRRGToLJUoSvjYeDpv1Pq20Kd2HKhi3mtR6ABH9OvAt9MQN9l0rfyCfG/bQ==, tarball: https://codeload.github.com/foundry-rs/forge-std/tar.gz/f3dae6e6ee381f25eb6a246f7da9b85c91a68219}
+    version: 1.17.0
+
   poseidon-solidity@0.0.5:
     resolution: {integrity: sha512-NzrvSwHzvZgT4hvg2GyGqeR+UOU/eLSEt4wAoXEua+VaR7NTKKwx1X9bPlh1VMBEVEno+IWvkRBbidFGzTeAqQ==}
 
@@ -28,5 +35,7 @@ snapshots:
   '@zk-kit/lean-imt.sol@2.0.1':
     dependencies:
       poseidon-solidity: 0.0.5
+
+  forge-std@https://codeload.github.com/foundry-rs/forge-std/tar.gz/f3dae6e6ee381f25eb6a246f7da9b85c91a68219: {}
 
   poseidon-solidity@0.0.5: {}
