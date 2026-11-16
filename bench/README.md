@@ -4,25 +4,25 @@ Skew-MMR benchmarks for compute, gas, and constraint compared with zk-kit's [lea
 
 | At 1,024 members           | skew-MMR | leanIMT |
 | -------------------------- | -------- | ------- |
-| Mean insert gas            | 71,948   | 185,610 |
+| Mean insert gas            | 90,926   | 185,610 |
 | Proof constraints          | 2,867    | 2,463   |
 | JS insert (ms)             | 0.120    | 0.829   |
 | JS verify (ms)             | 1.42     | 1.51    |
 
 ## Insert gas
 
-Gas for each insert into an empty tree, as a full transaction.
+Gas for each insert into an empty tree, as a full transaction (`forge test --isolate`). Both use the original Poseidon from `poseidon-solidity`: `PoseidonT4` for skew-MMR and `PoseidonT3` for leanIMT.
 
 ![Insert gas vs members](results/insert_gas.svg)
 
 | Mean over first | skew-MMR | leanIMT |
 | --------------- | -------- | ------- |
-| 128 members     | 80,762   | 147,418 |
-| 256 members     | 75,791   | 159,889 |
-| 512 members     | 73,250   | 172,666 |
-| 1,024 members   | 71,948   | 185,610 |
+| 128 members     | 99,999   | 147,418 |
+| 256 members     | 94,880   | 159,889 |
+| 512 members     | 92,265   | 172,666 |
+| 1,024 members   | 90,926   | 185,610 |
 
-Skew-MMR hashes at most once per insert, so its cost stays flat. LeanIMT updates every level, so its cost grows with the number of members.
+Skew-MMR hashes once per insert, so its cost stays flat. LeanIMT updates every level, so its cost grows with the number of members.
 
 ## Proof constraints
 

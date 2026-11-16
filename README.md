@@ -32,7 +32,7 @@ Append columns measure the number of hashes required to append a single element.
 
 | Structure  | Append mean | Append max | Proof mean    | Proof max   |
 | ---------- | ----------- | ---------- | ------------- | ----------- |
-| Skew-MMR   | 0.5         | 1          | log2(n) - 1.5 | log2(n) - 1 |
+| Skew-MMR   | 1           | 1          | log2(n) - 1   | log2(n)     |
 | Hash chain | 1.03        | 5          | 144           | 160         |
 
 ### Append gas
